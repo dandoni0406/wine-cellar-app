@@ -170,9 +170,12 @@ async function callGemini(prompt, apiKey, tokens, model){
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:genConfig })
   });
-  if(!r.ok) throw new Error(`Gemini HTTP ${r.status}`);
+  if(!r.ok){
+    if(r.status===429){ aiNotify("limit"); throw new Error("RATE_LIMIT 429"); }
+    aiNotify("error", r.status); throw new Error(`Gemini HTTP ${r.status}`);
+  }
   const data = await r.json();
-  if(data.error) throw new Error(data.error.message);
+  if(data.error){ aiNotify("error"); throw new Error(data.error.message); }
   // thought 파트(Pro 추론과정)는 건너뛰고 실제 JSON 응답 파트 사용
   const parts = data.candidates?.[0]?.content?.parts || [];
   const text = (parts.find(p => !p.thought) || parts[0])?.text || "{}";
@@ -183,6 +186,20 @@ async function callGemini(prompt, apiKey, tokens, model){
 let _aiProvider = "gemini"; // deployed default; user supplies Gemini key in Settings
 let _geminiKey = "";
 function setAIProvider(p, key){ _aiProvider=p; _geminiKey=key||""; }
+
+// AI 오류 알림 (429 한도초과 vs 일반오류 구분, 3초 디바운스)
+let _lastNotify = 0;
+function aiNotify(kind, status){
+  const now = Date.now();
+  if(now - _lastNotify < 3000) return;
+  _lastNotify = now;
+  if(typeof window === "undefined") return;
+  if(kind === "limit"){
+    window.alert("⏳ AI 호출 한도 초과\n\nGemini 무료 등급의 분당/일일 한도에 도달했습니다. (요금 청구 아님)\n잠시 후(약 1분) 다시 시도하거나, 내일 다시 시도하세요.");
+  } else {
+    window.alert("⚠️ AI 호출 오류" + (status?` (${status})`:"") + "\n\n네트워크 연결 또는 ⚙️설정의 Gemini 키를 확인하세요.");
+  }
+}
 
 async function callAI(prompt, tokens, model){
   if(_aiProvider==="gemini" && _geminiKey.trim()){
@@ -264,12 +281,30 @@ const lookupWineRecommendations = (name, v, region, price) => aiJson(
 famous: 잘 알려진 대안 2-3개 (비슷한 등급·스타일·가격대)
 gems: 덜 알려졌지만 가성비 좋거나 품질 뛰어난 와인 2-3개`, 1500, PRO
 );
+// 내 셀러 안에서 비슷한 와인 추천 (외부 환각 방지)
+const recommendFromCellar = (wine, cellarWines) => {
+  const others = (cellarWines||[]).filter(w => w.id !== wine.id);
+  if(others.length < 2) return Promise.resolve({ items:[], _few:true });
+  const g1 = s => (s||"").split(/[,/·&]| 및 /)[0].trim().toLowerCase();
+  const score = w => (w.wineType===wine.wineType?2:0)
+    + (normCountry(w.country)===normCountry(wine.country)?1:0)
+    + ((w.region&&wine.region&&w.region===wine.region)?2:0)
+    + ((g1(w.grapeVariety)&&g1(w.grapeVariety)===g1(wine.grapeVariety))?2:0);
+  const sorted = [...others].sort((a,b)=>score(b)-score(a)).slice(0,60);
+  const list = sorted.map(w=>`${w.id} | ${cleanName(w.nameKR||w.nameEN,w.vintage)} | ${w.producer||""} | ${w.region||""},${w.country||""} | ${w.grapeVariety||""} | ${w.wineType||""}`).join("\n");
+  return aiJson(
+`내 와인 셀러 목록에서 "${cleanName(wine.nameKR||wine.nameEN,wine.vintage)}" (${[wine.region,wine.grapeVariety,wine.wineType].filter(Boolean).join(", ")})와 스타일·품종·지역이 가장 비슷한 와인 2~3개를 고르세요.
+반드시 아래 목록의 id만 사용. 목록에 없는 와인 절대 금지. 비슷한 게 정말 없으면 빈 배열.
+목록 (id | 이름 | 생산자 | 지역,국가 | 품종 | 종류):
+${list}
+JSON만: {"items":[{"id":"목록의 id 그대로","whySimilar":"왜 비슷한지 한 문장"}]}`, 1500, PRO);
+};
 
 const lookupWineInsights = (name, v) => aiJson(
 `와인 전문가 수준으로 "${name}"${v?` (${v}빈티지)`:""}에 대한 심화 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만.
 반드시 정확한 사실만 작성. 와인의 실제 국가·산지를 정확히 확인할 것. 확실하지 않은 항목은 빈 문자열로 두고 절대 추측하거나 지어내지 말 것.
 
-{"hierarchy":{"description":"이 와인이 생산자 라인업에서 차지하는 위치 설명 (예: VDP.Grosse Lage > VDP.Ortswein > VDP.Gutswein 중 해당 등급)","table":[{"rank":"①","name":"최상위 와인명","category":"VDP/AOC 분류"},{"rank":"②","name":"이 와인","category":"해당 등급","isCurrent":true},{"rank":"③","name":"기본 와인","category":"엔트리 등급"}]},"classificationKey":{"title":"알아야 할 핵심 코드/시스템","items":[{"code":"코드나 용어","meaning":"설명"}]},"essentialContext":"이 와인을 이해하기 위해 반드시 알아야 할 배경 지식 2-3문장. 생산 방식 특이사항, 지역 특성, 위계 체계 등","vintageCharacter":"${v||"해당 빈티지"}년 특성 — 기상 조건, 스타일, 숙성 가능성 2문장","criticalInsight":"이 와인만의 핵심 감상 포인트 또는 구별되는 특징 2문장","peakWindow":"최적 음용 시기 (예: 2028~2038, 지금도 가능)","decanting":"디캔팅 권장 여부 및 시간","servingTemp":"적정 서빙 온도","foodPairing":["최적 페어링 음식1","음식2","음식3"],"similarWines":["비슷한 스타일 와인1","와인2"],"rarityNote":"희소성/생산량/시장 접근성","funFact":"알면 흥미로운 사실 1-2문장"}`, 2500, PRO
+{"hierarchy":{"description":"이 와인이 생산자 라인업에서 차지하는 위치 설명 (예: VDP.Grosse Lage > VDP.Ortswein > VDP.Gutswein 중 해당 등급)","table":[{"rank":"①","name":"최상위 와인명","category":"VDP/AOC 분류"},{"rank":"②","name":"이 와인","category":"해당 등급","isCurrent":true},{"rank":"③","name":"기본 와인","category":"엔트리 등급"}]},"classificationKey":{"title":"알아야 할 핵심 코드/시스템","items":[{"code":"코드나 용어","meaning":"설명"}]},"essentialContext":"이 와인을 이해하기 위해 반드시 알아야 할 배경 지식 2-3문장. 생산 방식 특이사항, 지역 특성, 위계 체계 등","vintageCharacter":"${v||"해당 빈티지"}년 특성 — 기상 조건, 스타일, 숙성 가능성 2문장","criticalInsight":"이 와인만의 핵심 감상 포인트 또는 구별되는 특징 2문장","peakWindow":"최적 음용 시기 (예: 2028~2038, 지금도 가능)","decanting":"디캔팅 권장 여부 및 시간","servingTemp":"적정 서빙 온도","foodPairing":["최적 페어링 음식1","음식2","음식3"],"rarityNote":"희소성/생산량/시장 접근성","funFact":"알면 흥미로운 사실 1-2문장"}`, 2500, PRO
 );
 
 const correctWine = (name, v) => aiJson(`와인 "${name}"${v?` 빈티지 ${v}`:""}을 보정해서 JSON만. nameKR/nameEN에 빈티지 포함 금지.
@@ -970,7 +1005,7 @@ function AddWinePage({ type, onAdd, onBack }) {
 }
 
 // ── Wine Detail Page (WSET3+ Enhanced) ───────────────────────────
-function WineDetailPage({ wine, notes, onBack, onUpdate, onDelete, onTaste, googleMapsKey="", tasters=["나","아내"] }) {
+function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onTaste, onOpenWine, googleMapsKey="", tasters=["나","아내"] }) {
   const [ed, se] = useState(false);
   const [form, sf] = useState({...wine, expertRatings:{...(wine.expertRatings||{})}});
   const [enriching, setEnriching] = useState(false);
@@ -979,8 +1014,8 @@ function WineDetailPage({ wine, notes, onBack, onUpdate, onDelete, onTaste, goog
   async function doLoadReco(){
     setLoadingReco(true);
     try{
-      const d=await lookupWineRecommendations(wine.nameKR||wine.nameEN,wine.vintage,wine.region,wine.purchasePrice);
-      if(d&&(d.famous||d.gems)){setReco(d);onUpdate({recommendations:d});}
+      const d=await recommendFromCellar(wine, wines);
+      setReco(d); onUpdate({recommendations:d});
     }catch(e){}
     setLoadingReco(false);
   }
@@ -1344,15 +1379,6 @@ function WineDetailPage({ wine, notes, onBack, onUpdate, onDelete, onTaste, goog
                   )}
                   {/* Fun fact */}
                   {insights.funFact && <div style={{fontSize:12,color:"#888",fontStyle:"italic",marginBottom:6}}>💬 {insights.funFact}</div>}
-                  {/* Similar wines */}
-                  {insights.similarWines?.length > 0 && (
-                    <div>
-                      <div style={{fontSize:11,color:"#aaa",marginBottom:4}}>🔗 비슷한 와인</div>
-                      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
-                        {insights.similarWines.map(w=><span key={w} style={{fontSize:11,background:"#f5f2ee",borderRadius:20,padding:"2px 8px",color:"#666"}}>{w}</span>)}
-                      </div>
-                    </div>
-                  )}
                 </div>
               ) : (
                 <div style={{fontSize:12,color:"#aaa",textAlign:"center",padding:"8px 0"}}>
@@ -1398,44 +1424,39 @@ function WineDetailPage({ wine, notes, onBack, onUpdate, onDelete, onTaste, goog
             {/* ── Recommendations ── */}
             <div style={CS}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                <SH style={{marginBottom:0}}>🔍 비슷한 와인 추천</SH>
+                <SH style={{marginBottom:0}}>🍷 내 셀러의 비슷한 와인</SH>
                 {!loadingReco&&<button onClick={doLoadReco}
                   style={{background:reco?"#f5f2ee":"#FDF1F2",color:reco?"#888":RED,border:`1px solid ${reco?"#eee":RED+"40"}`,borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                  {reco?"🔄 재추천":"🤖 AI 추천 받기"}
+                  {reco?"🔄 다시 찾기":"🍷 셀러에서 찾기"}
                 </button>}
-                {loadingReco&&<span style={{fontSize:12,color:"#aaa"}}>추천 중...</span>}
+                {loadingReco&&<span style={{fontSize:12,color:"#aaa"}}>찾는 중...</span>}
               </div>
-              {reco?(
-                <div>
-                  {reco.note&&<div style={{fontSize:12,color:"#888",marginBottom:12,fontStyle:"italic"}}>💬 {reco.note}</div>}
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                    <div>
-                      <div style={{fontSize:11,fontWeight:700,color:GOLD,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🏆 유명 대안</div>
-                      {(reco.famous||[]).filter(w=>w.name).map((w,i)=>(
-                        <div key={i} style={{background:"#FBF8F4",borderRadius:8,padding:"10px 10px",marginBottom:6}}>
-                          <div style={{fontSize:12,fontWeight:700,color:"#333",marginBottom:2}}>{w.name}</div>
-                          <div style={{fontSize:11,color:"#888",marginBottom:3}}>{w.region}</div>
-                          {w.priceRange&&<div style={{fontSize:11,color:GOLD,fontWeight:600,marginBottom:4}}>{w.priceRange}</div>}
-                          <div style={{fontSize:11,color:"#666",lineHeight:1.4}}>{w.whySimilar}</div>
+              {reco && reco.items ? (
+                reco.items.length>0 ? (
+                  <div>
+                    {reco.items.map((it,i)=>{
+                      const w = wines.find(x=>x.id===it.id);
+                      if(!w) return null;
+                      return (
+                        <div key={i} onClick={()=>onOpenWine&&onOpenWine(w)}
+                          style={{background:"#FBF8F4",borderRadius:8,padding:"10px 12px",marginBottom:6,cursor:"pointer",border:"1px solid #f0e8de"}}>
+                          <div style={{fontSize:13,fontWeight:700,color:"#333",marginBottom:2}}>
+                            {cleanName(w.nameKR||w.nameEN,w.vintage)}{w.vintage?<span style={{color:GOLD,fontWeight:600}}> {w.vintage}</span>:null}
+                          </div>
+                          <div style={{fontSize:11,color:"#888",marginBottom:4}}>{[w.region,w.country].filter(Boolean).join(", ")}</div>
+                          <div style={{fontSize:11,color:"#666",lineHeight:1.4}}>💡 {it.whySimilar}</div>
                         </div>
-                      ))}
-                    </div>
-                    <div>
-                      <div style={{fontSize:11,fontWeight:700,color:"#2E7D32",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>💎 숨은 보석</div>
-                      {(reco.gems||[]).filter(w=>w.name).map((w,i)=>(
-                        <div key={i} style={{background:"#F1F8F1",borderRadius:8,padding:"10px 10px",marginBottom:6}}>
-                          <div style={{fontSize:12,fontWeight:700,color:"#333",marginBottom:2}}>{w.name}</div>
-                          <div style={{fontSize:11,color:"#888",marginBottom:3}}>{w.region}</div>
-                          {w.priceRange&&<div style={{fontSize:11,color:"#2E7D32",fontWeight:600,marginBottom:4}}>{w.priceRange}</div>}
-                          <div style={{fontSize:11,color:"#666",lineHeight:1.4}}>{w.whySimilar}</div>
-                        </div>
-                      ))}
-                    </div>
+                      );
+                    })}
                   </div>
-                </div>
+                ) : (
+                  <div style={{fontSize:12,color:"#aaa",textAlign:"center",padding:"8px 0"}}>
+                    {reco._few ? "셀러에 비교할 와인이 더 필요해요 (2병 이상 등록하면 추천됩니다)" : "셀러에서 비슷한 와인을 찾지 못했어요"}
+                  </div>
+                )
               ):(
                 <div style={{fontSize:12,color:"#aaa",textAlign:"center",padding:"8px 0"}}>
-                  AI가 비슷한 가격·스타일의 유명 와인과 숨은 보석을 추천해드려요
+                  내가 보유한 와인 중에서 이 와인과 비슷한 것을 찾아드려요
                 </div>
               )}
             </div>
@@ -2322,7 +2343,7 @@ function App() {
   if (!ready) {
     return (<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F7F4F0",color:"#aaa",fontSize:16,fontFamily:"system-ui,sans-serif"}}>🍷 불러오는 중...</div>);
   }
-  if (page==="detail") { return (<WineDetailPage wine={ctx.wine} notes={notes.filter(n=>n.wineId===ctx.wine?.id)} onBack={back} onUpdate={ch=>editWine(ctx.wine.id,ch)} onDelete={()=>deleteWine(ctx.wine.id)} onTaste={()=>nav("tasting",{wine:ctx.wine})} googleMapsKey={googleMapsKey} tasters={tasters}/>); }
+  if (page==="detail") { return (<WineDetailPage key={ctx.wine?.id} wine={ctx.wine} wines={wines} notes={notes.filter(n=>n.wineId===ctx.wine?.id)} onBack={back} onUpdate={ch=>editWine(ctx.wine.id,ch)} onDelete={()=>deleteWine(ctx.wine.id)} onTaste={()=>nav("tasting",{wine:ctx.wine})} onOpenWine={(w)=>nav("detail",{wine:w})} googleMapsKey={googleMapsKey} tasters={tasters}/>); }
   if (page==="add") { return (<AddWinePage type={ctx.type} onAdd={w=>addWine({...w,type:ctx.type,status:"In Stock"})} onBack={back}/>); }
   if (page==="tasting") { return (<AddTastingPage wine={ctx.wine||null} wines={cel} onSave={addNote} onBack={back} tasters={tasters}/>); }
   if (page==="note") { return (<NoteDetailPage note={ctx.note} wine={wines.find(w=>w.id===ctx.note?.wineId)} onBack={back} onDelete={()=>deleteNote(ctx.note.id)}/>); }
