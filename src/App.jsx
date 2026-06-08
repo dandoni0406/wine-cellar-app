@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import './storage.js';
 
 const STORAGE_KEY = "wine-cellar-v6";
@@ -154,21 +156,25 @@ async function callClaude(prompt, tokens, drive){
 }
 
 async function callGemini(prompt, apiKey, tokens){
-  const model = "gemini-2.5-flash";
+  const model = "gemini-2.5-flash-lite";  // thinking 기본 OFF → 토큰 잘림 없이 안정적
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const r = await fetch(url, {
     method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({
       contents:[{parts:[{text:prompt}]}],
-      generationConfig:{maxOutputTokens:tokens||1500,temperature:0.2}
+      generationConfig:{
+        maxOutputTokens: Math.max(tokens||2000, 4000),
+        temperature:0.2
+      }
     })
   });
   if(!r.ok) throw new Error(`Gemini HTTP ${r.status}`);
   const data = await r.json();
   if(data.error) throw new Error(data.error.message);
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-  // Return same shape as Claude response so aiJson works unchanged
+  // 안전망: thought 파트가 있으면 건너뛰고 실제 응답 파트 사용
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const text = (parts.find(p => !p.thought) || parts[0])?.text || "{}";
   return {content:[{type:"text",text}]};
 }
 
@@ -219,14 +225,15 @@ JSON 배열만 반환, 다른 텍스트 없이.`,12000,true);
 // Basic lookup — simple flat JSON, very reliable
 const lookupWine = (name, v) => aiJson(
 `와인 "${name}"${v?` (${v}빈티지)`:""}의 기본 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만. nameKR/nameEN에 빈티지 포함 금지. 부르고뉴면 isBurgundy=true, 보르도면 isBordeaux=true.
-{"nameKR":"한국어와인명","nameEN":"English name","producer":"생산자","country":"국가","region":"지역","subRegion":"세부지역","vineyard":"포도밭","classification":"등급","grapeVariety":"포도품종","wineType":"Red","drinkFrom":"시작연도숫자","drinkUntil":"종료연도숫자","description":"3문장 한국어 설명","isBurgundy":false,"isBordeaux":false,"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"밭위치설명","expertRatings":{"bh":"부르고뉴필수","ws":"","wa":"보르도필수","vinous":"","js":"","jr":"","dec":"","jm":"부르고뉴전용"}}`, 2000
+{"nameKR":"한국어와인명","nameEN":"English name","producer":"생산자","country":"국가","region":"지역","subRegion":"세부지역","vineyard":"포도밭","classification":"등급","grapeVariety":"포도품종","wineType":"Red","drinkFrom":"시작연도숫자","drinkUntil":"종료연도숫자","description":"3문장 한국어 설명","isBurgundy":false,"isBordeaux":false,"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"밭위치설명","expertRatings":{"bh":"","ws":"","wa":"","vinous":"","js":"","jr":"","dec":"","jm":""}}
+중요: expertRatings 각 필드는 실제 점수 숫자(예: 92)가 확인된 경우에만 입력. 없거나 미발표면 반드시 빈 문자열 "" — 절대 설명 텍스트 금지.`, 2000
 );
 
 // Detailed WSET-level info — called separately from detail page
 const lookupWineDetail = (name, v) => aiJson(
 `와인 "${name}"${v?` (${v})`:""}의 상세 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만.
-{"terroir":{"soilType":"","soilDesc":"","slope":"","aspect":"","altitude":"","vineAge":"","vineyardSize":"","microclimate":"","geology":""},"producerInfo":{"founded":"","size":"","certifications":"","history":"2-3문장","philosophy":"2-3문장","approach":""},"vintageInfo":{"weather":"","harvest":"","characteristics":"2-3문장","agingPotential":""},"winemaking":{"fermentation":"","yeast":"","vessel":"","aging":"","agingVessel":"","agingTime":"","malo":"","filtration":"","sulfur":""},"expertNotes":[{"critic":"","score":"","note":"실제 시음노트 원문만. 없으면 이 항목 자체를 배열에서 생략","year":""}]}
-중요: expertNotes 배열에 정보가 없는 평론가는 포함하지 말것. 안내 문구, 면책 조항 절대 금지.`, 3000
+{"terroir":{"soilType":"","soilDesc":"","slope":"","aspect":"","altitude":"","vineAge":"","vineyardSize":"","microclimate":"","geology":""},"producerInfo":{"founded":"","size":"","certifications":"","history":"2-3문장","philosophy":"2-3문장","approach":""},"vintageInfo":{"weather":"","harvest":"","characteristics":"2-3문장","agingPotential":""},"winemaking":{"fermentation":"","yeast":"","vessel":"","aging":"","agingVessel":"","agingTime":"","malo":"","filtration":"","sulfur":""},"expertNotes":[{"critic":"","score":"","note":"실제 시음노트를 자연스러운 한국어로 번역해서. 없으면 이 항목 자체를 배열에서 생략","year":""}]}
+중요: expertNotes 배열에 정보가 없는 평론가는 포함하지 말것. note는 반드시 한국어로 번역. 안내 문구, 면책 조항 절대 금지.`, 3000
 );
 const lookupWineRecommendations = (name, v, region, price) => aiJson(
 `와인 전문가로서 "${name}"${v?` (${v})`:""} (${region||""}${price?`, 가격대 ₩${parseInt(price).toLocaleString()}`:""})과 비슷한 와인을 추천해줘. 마크다운 없이 순수 JSON만 반환.
@@ -264,8 +271,8 @@ function syncRatings(expertNotes, existing){
   (expertNotes||[]).forEach(n=>{
     const k=criticKey(n.critic);
     if(!k)return;
-    const s=(n.score||"").match(/[\d.]+/)?.[0];
-    if(s&&!merged[k])merged[k]=s; // only fill empty slots
+    const s=(n.score||"").match(/[\d.]+(?:\s*-\s*[\d.]+)?/)?.[0];
+    if(s&&!merged[k])merged[k]=s.replace(/\s/g,""); // only fill empty slots, 범위(86-88) 보존
   });
   return merged;
 }
@@ -314,7 +321,7 @@ LABELS & LEGEND
 - Country label bottom-left: font-size="8" fill="#AAA"`;
 
   try{
-    const d=await callClaude(prompt,3000,false);
+    const d=await callAI(prompt,8000);
     const txt=(d.content?.find(c=>c.type==="text")?.text||"").trim();
     if(txt.startsWith("<svg"))return txt;
     const m=txt.match(/<svg[\s\S]*<\/svg>/i);
@@ -323,96 +330,99 @@ LABELS & LEGEND
   }catch(e){return null;}
 }
 // ── Map Display ──────────────────────────────────────────────────
-function MapDisplay({ lat, lon, zoom, label, svgMap, onSvgGenerated, googleMapsKey }) {
-  const [mode, setMode] = useState("auto"); // auto | google | svg | coord
-  const [svgFailed, setSvgFailed] = useState(false);
-  const [iframeFailed, setIframeFailed] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const timerRef = useRef(null);
+function MapDisplay({ lat, lon, zoom, label }) {
+  const ref = useRef(null);
+  const mapRef = useRef(null);
+  const la = parseFloat(lat), lo = parseFloat(lon);
+  const valid = !isNaN(la) && !isNaN(lo) && (la !== 0 || lo !== 0);
 
-  if (!lat || !lon) return null;
-  const lf = parseFloat(lat), lnf = parseFloat(lon), z = parseInt(zoom)||15;
-  const gmLink = `https://www.google.com/maps?q=${lf},${lnf}&z=${z}`;
-  const osmLink = `https://www.openstreetmap.org/?mlat=${lf}&mlon=${lnf}#map=${z}/${lf}/${lnf}`;
+  useEffect(() => {
+    if (!valid || !ref.current) return;
+    if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
+    const map = L.map(ref.current, { scrollWheelZoom:false }).setView([la, lo], parseInt(zoom)||12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution:'© OpenStreetMap', maxZoom:18
+    }).addTo(map);
+    L.circleMarker([la, lo], { radius:9, fillColor:RED, color:'#fff', weight:2, fillOpacity:1 }).addTo(map);
+    setTimeout(() => { try{ map.invalidateSize(); }catch(e){} }, 150);
+    mapRef.current = map;
+    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
+  }, [la, lo, zoom, valid]);
 
-  // Detect key type
-  const keyVal = (googleMapsKey||"").trim();
-  const isMapbox = keyVal.startsWith("pk.");
-  const isGoogle = keyVal.startsWith("AIza") || (keyVal.length > 20 && !isMapbox);
-  const hasKey = keyVal.length > 10;
-
-  // Map image URLs
-  const mapImgSrc = isMapbox
-    ? `https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/static/pin-s+8B2635(${lnf},${lf})/${lnf},${lf},${z}/600x300@2x?access_token=${keyVal}`
-    : isGoogle
-    ? `https://maps.googleapis.com/maps/api/staticmap?center=${lf},${lnf}&zoom=${z}&size=600x300&maptype=terrain&markers=color:red|${lf},${lnf}&key=${keyVal}`
-    : null;
-
-  const attribution = isMapbox ? "© Mapbox © OpenStreetMap" : isGoogle ? "© Google Maps" : "";
-
-  // ① Static map image (Mapbox or Google)
-  if (hasKey && mapImgSrc && !svgFailed) {
+  if (!valid) {
     return (
-      <div>
-        <img src={mapImgSrc}
-          onError={() => setSvgFailed(true)}
-          style={{width:"100%", height:280, objectFit:"cover", borderRadius:8, border:"1px solid #eee", display:"block"}}
-          alt="vineyard map"/>
-        <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
-          <span style={{fontSize:10,color:"#aaa"}}>{attribution}</span>
-          <a href={gmLink} target="_blank" rel="noreferrer" style={{fontSize:11,color:"#888"}}>크게 보기 →</a>
-        </div>
+      <div style={{borderRadius:8,border:"1px solid #e0d8cc",background:"#F7F3ED",padding:20,textAlign:"center",fontSize:12,color:"#aaa"}}>
+        위치 정보가 없습니다 — "AI 정보 채우기"로 밭 좌표를 받아보세요
       </div>
     );
   }
-
-  // ② Pre-generated SVG map
-  if (svgMap) {
-    return (
-      <div>
-        <div style={{borderRadius:8,overflow:"hidden",border:"1px solid #e0d8cc"}}
-          dangerouslySetInnerHTML={{__html:svgMap}}/>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:4}}>
-          {onSvgGenerated && (
-            <button onClick={async()=>{setGenerating(true);try{await onSvgGenerated();}finally{setGenerating(false);}}}
-              style={{fontSize:11,color:GOLD,background:"none",border:"none",cursor:"pointer",padding:0}}>
-              {generating?"생성 중...":"🔄 지도 재생성"}
-            </button>
-          )}
-          <a href={gmLink} target="_blank" rel="noreferrer" style={{fontSize:11,color:"#888",marginLeft:"auto"}}>Google Maps에서 보기 →</a>
-        </div>
-      </div>
-    );
-  }
-
-  // ③ Generate SVG button
+  const osmLink = `https://www.openstreetmap.org/?mlat=${la}&mlon=${lo}#map=${parseInt(zoom)||13}/${la}/${lo}`;
   return (
     <div>
-      <div style={{borderRadius:8,border:"1px solid #e0d8cc",background:"#F7F3ED",padding:20,textAlign:"center"}}>
-        <div style={{fontSize:12,color:"#888",marginBottom:4}}>{label||""}</div>
-        <div style={{fontSize:11,color:"#aaa",marginBottom:12}}>{lf.toFixed(4)}°N, {lnf.toFixed(4)}°E</div>
-        {onSvgGenerated ? (
-          <button onClick={async()=>{
-            setGenerating(true);
-            try{await onSvgGenerated();}finally{setGenerating(false);}
-          }} disabled={generating}
-            style={{background:GOLD,color:"#fff",border:"none",borderRadius:8,padding:"9px 18px",fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:8}}>
-            {generating?"🎨 AI가 지도를 그리는 중...":"🎨 AI로 와인 지역 지도 생성"}
-          </button>
-        ) : null}
-        <div style={{marginTop:8,display:"flex",gap:8,justifyContent:"center"}}>
-          <a href={gmLink} target="_blank" rel="noreferrer"
-            style={{fontSize:12,color:"#4285F4",fontWeight:600,textDecoration:"none"}}>🗺 Google Maps</a>
-          <span style={{color:"#ccc"}}>|</span>
-          <a href={osmLink} target="_blank" rel="noreferrer"
-            style={{fontSize:12,color:RED,fontWeight:600,textDecoration:"none"}}>OpenStreetMap</a>
+      <div ref={ref} style={{width:"100%",height:240,borderRadius:10,overflow:"hidden",border:"1px solid #e0d8cc"}}/>
+      <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+        {label ? <span style={{fontSize:11,color:"#aaa"}}>{label}</span> : <span/>}
+        <a href={osmLink} target="_blank" rel="noreferrer" style={{fontSize:11,color:"#888"}}>크게 보기 →</a>
+      </div>
+    </div>
+  );
+}
+
+// ── 전체 셀러 지도 (모든 와인 핀) ─────────────────────────────────
+const WINE_TYPE_COLOR = { Red:RED, White:"#C9A84A", "Rosé":"#E091A8", Sparkling:"#5AA0A0", Dessert:"#C77F2E", Fortified:"#7A4FA3" };
+function CellarMapPage({ wines, onBack }) {
+  const ref = useRef(null);
+  const mapRef = useRef(null);
+  const pinned = wines.filter(w => {
+    const la = parseFloat(w.vineyardLat), lo = parseFloat(w.vineyardLon);
+    return !isNaN(la) && !isNaN(lo) && (la !== 0 || lo !== 0);
+  });
+
+  useEffect(() => {
+    if (!ref.current) return;
+    if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
+    const map = L.map(ref.current).setView([30, 10], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution:'© OpenStreetMap', maxZoom:18
+    }).addTo(map);
+    const pts = [];
+    pinned.forEach(w => {
+      const la = parseFloat(w.vineyardLat), lo = parseFloat(w.vineyardLon);
+      const color = WINE_TYPE_COLOR[w.wineType] || RED;
+      const m = L.circleMarker([la, lo], { radius:7, fillColor:color, color:'#fff', weight:1.5, fillOpacity:0.9 }).addTo(map);
+      const nm = cleanName(w.nameKR||w.nameEN, w.vintage);
+      const sub = [w.region, w.country].filter(Boolean).join(", ");
+      m.bindPopup(`<div style="font-size:13px;line-height:1.5"><b>${nm}</b>${w.vintage?` <span style="color:#9A7020">${w.vintage}</span>`:""}${sub?`<br><span style="color:#888">${sub}</span>`:""}</div>`);
+      pts.push([la, lo]);
+    });
+    if (pts.length === 1) map.setView(pts[0], 8);
+    else if (pts.length > 1) { try{ map.fitBounds(pts, { padding:[40,40], maxZoom:9 }); }catch(e){} }
+    setTimeout(() => { try{ map.invalidateSize(); }catch(e){} }, 150);
+    mapRef.current = map;
+    return () => { if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; } };
+  }, []);
+
+  return (
+    <div style={{minHeight:"100vh",background:"#F7F4F0",fontFamily:"system-ui,sans-serif"}}>
+      <TopBar title="🗺 셀러 지도" onBack={onBack}/>
+      <div style={{padding:16,maxWidth:680,margin:"0 auto"}}>
+        <div style={{fontSize:12,color:"#888",marginBottom:10}}>
+          좌표가 있는 와인 {pinned.length}병 · 핀을 누르면 와인 정보가 표시됩니다
+        </div>
+        <div ref={ref} style={{width:"100%",height:"60vh",minHeight:380,borderRadius:12,overflow:"hidden",border:"1px solid #e0d8cc"}}/>
+        {pinned.length === 0 && (
+          <div style={{fontSize:12,color:"#aaa",textAlign:"center",marginTop:16,lineHeight:1.6}}>
+            아직 좌표가 있는 와인이 없습니다.<br/>와인 상세에서 "AI 정보 채우기"를 하면 밭 좌표가 채워집니다.
+          </div>
+        )}
+        <div style={{display:"flex",flexWrap:"wrap",gap:10,marginTop:12,justifyContent:"center"}}>
+          {Object.entries(WINE_TYPE_COLOR).map(([t,c])=>(
+            <span key={t} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#888"}}>
+              <span style={{width:10,height:10,borderRadius:"50%",background:c,display:"inline-block"}}/>{t}
+            </span>
+          ))}
         </div>
       </div>
-      {!hasKey && (
-        <div style={{fontSize:11,color:"#aaa",marginTop:4,textAlign:"center"}}>
-          💡 ⚙️에서 Mapbox 키를 입력하면 실사 지도를 볼 수 있어요 (무료, 카드 불필요)
-        </div>
-      )}
     </div>
   );
 }
@@ -871,7 +881,7 @@ function AddWinePage({ type, onAdd, onBack }) {
               <div style={CS}>
                 <SH>📍 포도밭 위치</SH>
                 {form.mapNotes && (<div style={{fontSize:12,color:"#888",marginBottom:8}}>{form.mapNotes}</div>)}
-                <MapDisplay lat={form.vineyardLat} lon={form.vineyardLon} zoom={form.vineyardZoom} label={form.mapNotes} svgMap={null} onSvgGenerated={null}/>
+                <MapDisplay lat={form.vineyardLat} lon={form.vineyardLon} zoom={form.vineyardZoom} label={form.mapNotes}/>
               </div>
             )}
             <div style={CS}>
@@ -974,7 +984,7 @@ function WineDetailPage({ wine, notes, onBack, onUpdate, onDelete, onTaste, goog
   }
   const upF = k => e => sf(p=>({...p,[k]:e.target.value}));
   const upR = k => e => sf(p=>({...p,expertRatings:{...p.expertRatings,[k]:e.target.value}}));
-  const rat = wine.expertRatings||{};
+  const rat = syncRatings(wine.expertNotes, wine.expertRatings||{}); // 노트 점수 자동 반영
   const hasR = Object.values(rat).some(Boolean);
   const isBurg = wine.isBurgundy||["Burgundy","Bourgogne","부르고뉴"].some(r=>(wine.region||"").includes(r));
   const isBord = wine.isBordeaux||["Bordeaux","보르도"].some(r=>(wine.region||"").includes(r));
@@ -1174,7 +1184,7 @@ function WineDetailPage({ wine, notes, onBack, onUpdate, onDelete, onTaste, goog
               <div style={CS}>
                 <SH>📍 포도밭 위치</SH>
                 {wine.mapNotes && (<div style={{fontSize:12,color:"#888",marginBottom:8}}>{wine.mapNotes}</div>)}
-                <MapDisplay lat={wine.vineyardLat} lon={wine.vineyardLon} zoom={wine.vineyardZoom} label={wine.mapNotes} svgMap={wine.vineyardSvg} onSvgGenerated={handleMapGenerate} googleMapsKey={googleMapsKey}/>
+                <MapDisplay lat={wine.vineyardLat} lon={wine.vineyardLon} zoom={wine.vineyardZoom} label={wine.mapNotes}/>
               </div>
             )}
 
@@ -1349,7 +1359,7 @@ function WineDetailPage({ wine, notes, onBack, onUpdate, onDelete, onTaste, goog
                   <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                     <div>
                       <div style={{fontSize:11,fontWeight:700,color:GOLD,marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🏆 유명 대안</div>
-                      {(reco.famous||[]).map((w,i)=>(
+                      {(reco.famous||[]).filter(w=>w.name).map((w,i)=>(
                         <div key={i} style={{background:"#FBF8F4",borderRadius:8,padding:"10px 10px",marginBottom:6}}>
                           <div style={{fontSize:12,fontWeight:700,color:"#333",marginBottom:2}}>{w.name}</div>
                           <div style={{fontSize:11,color:"#888",marginBottom:3}}>{w.region}</div>
@@ -1360,7 +1370,7 @@ function WineDetailPage({ wine, notes, onBack, onUpdate, onDelete, onTaste, goog
                     </div>
                     <div>
                       <div style={{fontSize:11,fontWeight:700,color:"#2E7D32",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>💎 숨은 보석</div>
-                      {(reco.gems||[]).map((w,i)=>(
+                      {(reco.gems||[]).filter(w=>w.name).map((w,i)=>(
                         <div key={i} style={{background:"#F1F8F1",borderRadius:8,padding:"10px 10px",marginBottom:6}}>
                           <div style={{fontSize:12,fontWeight:700,color:"#333",marginBottom:2}}>{w.name}</div>
                           <div style={{fontSize:11,color:"#888",marginBottom:3}}>{w.region}</div>
@@ -2264,6 +2274,7 @@ function App() {
   if (page==="add") { return (<AddWinePage type={ctx.type} onAdd={w=>addWine({...w,type:ctx.type,status:"In Stock"})} onBack={back}/>); }
   if (page==="tasting") { return (<AddTastingPage wine={ctx.wine||null} wines={cel} onSave={addNote} onBack={back} tasters={tasters}/>); }
   if (page==="note") { return (<NoteDetailPage note={ctx.note} wine={wines.find(w=>w.id===ctx.note?.wineId)} onBack={back} onDelete={()=>deleteNote(ctx.note.id)}/>); }
+  if (page==="cellarmap") { return (<CellarMapPage wines={wines} onBack={back}/>); }
 
   return (
     <div style={{minHeight:"100vh",background:"#F7F4F0",fontFamily:"system-ui,sans-serif"}}>
@@ -2278,6 +2289,7 @@ function App() {
           <label style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
             📥 불러오기<input type="file" accept=".json" onChange={doImportJSON} style={{display:"none"}}/>
           </label>
+          <button onClick={()=>nav("cellarmap")} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>🗺 지도</button>
           <button onClick={()=>setShowSettings(s=>!s)} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>⚙️</button>
         </div>
       </div>
