@@ -207,6 +207,29 @@ async function aiJson(prompt, tokens){
     return {};
   } catch(e) { return {}; }
 }
+// ── AI 라벨 스캐너 (Gemini Vision) ────────────────────────────────
+async function callGeminiVision(prompt, dataUrl, tokens){
+  const apiKey=(_geminiKey||"").trim();
+  if(!apiKey) throw new Error("설정(⚙️)에서 Gemini 키를 먼저 입력하세요");
+  const mm=(dataUrl||"").match(/^data:(image\/[\w+]+);base64,(.+)$/);
+  const mime=mm?.[1]||"image/jpeg", b64=mm?.[2]||"";
+  if(!b64) throw new Error("이미지 데이터를 읽지 못했습니다");
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:mime,data:b64}}]}],
+      generationConfig:{maxOutputTokens:Math.max(tokens||1500,4000),temperature:0.1,thinkingConfig:{thinkingBudget:0}}})});
+  if(!r.ok) throw new Error(`Gemini HTTP ${r.status}`);
+  const data=await r.json();
+  if(data.error) throw new Error(data.error.message);
+  const parts=data.candidates?.[0]?.content?.parts||[];
+  const raw=(parts.find(p=>!p.thought)||parts[0])?.text||"{}";
+  const s=raw.replace(/```json\n?|\n?```/g,"").trim();
+  try{return JSON.parse(s);}catch(e){const m=s.match(/\{[\s\S]*\}/);if(m){try{return JSON.parse(m[0]);}catch(e2){}}}
+  return {};
+}
+const scanLabel = (dataUrl) => callGeminiVision(
+`이 와인 라벨 사진을 보고 라벨에 실제로 적힌 정보만 읽어 JSON으로만 반환. 추측 금지, 안 보이면 빈 문자열. 마크다운 없이 순수 JSON만.
+{"nameEN":"라벨의 영문 와인명(생산자+밭/마을 포함해서 가능한 완전하게)","producer":"생산자","vintage":"빈티지 연도숫자(NV면 NV)"}`, dataUrl, 1500);
 function extractBlocks(blocks, wantArray){
   for(const b of blocks||[]){
     const texts=[b.text,...((b.content||[]).map(c=>c.text))].filter(Boolean);
@@ -799,16 +822,17 @@ function AddWinePage({ type, onAdd, onBack }) {
   }
   const upR = k => e => sf(p=>({...p,expertRatings:{...p.expertRatings,[k]:e.target.value}}));
 
-  async function doLookup() {
+  async function doLookup(query, vintage, extra) {
+    const qq = (typeof query==="string" && query) ? query : q;
+    const vv = (typeof vintage==="string") ? vintage : v;
     sl(true);
     try {
-      const info = await lookupWine(q, v);
-      const hasData = info && (info.producer || info.country || info.region);
+      const info = await lookupWine(qq, vv);
       sf(p => ({
-        ...p,
-        nameKR: info.nameKR || q,
+        ...p, ...(extra||{}),
+        nameKR: info.nameKR || qq,
         nameEN: info.nameEN || "",
-        vintage: v || info.vintage || "",
+        vintage: vv || info.vintage || "",
         producer: info.producer || "",
         country: normCountry(info.country) || "",
         region: info.region || "",
@@ -830,10 +854,29 @@ function AddWinePage({ type, onAdd, onBack }) {
       ss("form");
     } catch(e) {
       // Show error and still go to form with just the name
-      sf(p=>({...p, nameKR:q, vintage:v, _lookupError:String(e)}));
+      sf(p=>({...p, ...(extra||{}), nameKR:qq, vintage:vv, _lookupError:String(e)}));
       ss("form");
     }
     sl(false);
+  }
+
+  // ── 라벨 스캔 ──
+  const scanRef = useRef(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanErr, setScanErr] = useState("");
+  async function onScanPick(e){
+    const f=e.target.files?.[0]; if(!f) return;
+    setScanErr(""); setScanning(true);
+    try{
+      const dataUrl=await compressImage(f);
+      const res=await scanLabel(dataUrl);
+      const name=res.nameEN||res.producer;
+      if(!name){ setScanErr("라벨에서 와인명을 못 읽었어요. 더 선명한 사진으로 다시 찍거나 직접 검색하세요."); setScanning(false); return; }
+      sq(name); if(res.vintage) sv(String(res.vintage));
+      await doLookup(name, res.vintage?String(res.vintage):"", {labelPhoto:dataUrl});
+    }catch(err){ setScanErr(String(err.message||err)); }
+    setScanning(false);
+    if(scanRef.current) scanRef.current.value="";
   }
 
   return (
@@ -846,8 +889,16 @@ function AddWinePage({ type, onAdd, onBack }) {
             <FF label="와인 이름 *" value={q} onChange={e=>sq(e.target.value)} placeholder="예: Chambolle-Musigny Les Amoureuses"/>
             <FF label="빈티지 (선택)" value={v} onChange={e=>sv(e.target.value)} placeholder="예: 2019"/>
             <div style={{display:"flex",gap:10,marginTop:4}}>
-              <PB onClick={doLookup} disabled={loading||!q.trim()} xs={{flex:1}}>{loading?"🤖 검색 중...":"🤖 AI로 와인 정보 불러오기"}</PB>
+              <PB onClick={()=>doLookup()} disabled={loading||!q.trim()} xs={{flex:1}}>{loading?"🤖 검색 중...":"🤖 AI로 와인 정보 불러오기"}</PB>
               <GB onClick={()=>{sf(p=>({...p,nameKR:q,vintage:v}));ss("form");}}>직접 입력</GB>
+            </div>
+            <div style={{borderTop:"1px solid #eee",marginTop:14,paddingTop:14}}>
+              <div style={{fontSize:12,color:"#888",marginBottom:8}}>또는 라벨 사진으로 자동 인식 📸</div>
+              <input ref={scanRef} type="file" accept="image/*" onChange={onScanPick} style={{display:"none"}}/>
+              <PB onClick={()=>scanRef.current?.click()} disabled={scanning} full xs={{background:scanning?"#ccc":GOLD}}>
+                {scanning?"📸 라벨 읽는 중...":"📸 라벨 사진 스캔"}
+              </PB>
+              {scanErr && <div style={{fontSize:11,color:"#991B1B",marginTop:6,lineHeight:1.5}}>{scanErr}</div>}
             </div>
           </div>
         ) : (
