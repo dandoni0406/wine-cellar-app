@@ -156,7 +156,7 @@ async function callClaude(prompt, tokens, drive){
 }
 
 async function callGemini(prompt, apiKey, tokens){
-  const model = "gemini-2.5-flash-lite";  // thinking 기본 OFF → 토큰 잘림 없이 안정적
+  const model = "gemini-2.5-flash";  // flash-lite보다 지식 정확도 높음
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const r = await fetch(url, {
     method:"POST",
@@ -164,8 +164,9 @@ async function callGemini(prompt, apiKey, tokens){
     body:JSON.stringify({
       contents:[{parts:[{text:prompt}]}],
       generationConfig:{
-        maxOutputTokens: Math.max(tokens||2000, 4000),
-        temperature:0.2
+        maxOutputTokens: Math.max(tokens||2000, 6000),
+        temperature:0.15,
+        thinkingConfig:{thinkingBudget:0}  // thinking 끄기 → 토큰 잘림 없음 + 빠름
       }
     })
   });
@@ -225,6 +226,7 @@ JSON 배열만 반환, 다른 텍스트 없이.`,12000,true);
 // Basic lookup — simple flat JSON, very reliable
 const lookupWine = (name, v) => aiJson(
 `와인 "${name}"${v?` (${v}빈티지)`:""}의 기본 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만. nameKR/nameEN에 빈티지 포함 금지. 부르고뉴면 isBurgundy=true, 보르도면 isBordeaux=true.
+정확한 사실만 입력. 와인의 실제 생산 국가·지역을 정확히 판단할 것(예: "Beaune/본"은 프랑스 부르고뉴이지 독일이 아님). 확실하지 않은 항목은 추측하지 말고 빈 문자열로 둘 것.
 {"nameKR":"한국어와인명","nameEN":"English name","producer":"생산자","country":"국가","region":"지역","subRegion":"세부지역","vineyard":"포도밭","classification":"등급","grapeVariety":"포도품종","wineType":"Red","drinkFrom":"시작연도숫자","drinkUntil":"종료연도숫자","description":"3문장 한국어 설명","isBurgundy":false,"isBordeaux":false,"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"밭위치설명","expertRatings":{"bh":"","ws":"","wa":"","vinous":"","js":"","jr":"","dec":"","jm":""}}
 중요: expertRatings 각 필드는 실제 점수 숫자(예: 92)가 확인된 경우에만 입력. 없거나 미발표면 반드시 빈 문자열 "" — 절대 설명 텍스트 금지.`, 2000
 );
@@ -244,6 +246,7 @@ gems: 덜 알려졌지만 가성비 좋거나 품질 뛰어난 와인 2-3개`, 1
 
 const lookupWineInsights = (name, v) => aiJson(
 `와인 전문가 수준으로 "${name}"${v?` (${v}빈티지)`:""}에 대한 심화 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만.
+반드시 정확한 사실만 작성. 와인의 실제 국가·산지를 정확히 확인할 것. 확실하지 않은 항목은 빈 문자열로 두고 절대 추측하거나 지어내지 말 것.
 
 {"hierarchy":{"description":"이 와인이 생산자 라인업에서 차지하는 위치 설명 (예: VDP.Grosse Lage > VDP.Ortswein > VDP.Gutswein 중 해당 등급)","table":[{"rank":"①","name":"최상위 와인명","category":"VDP/AOC 분류"},{"rank":"②","name":"이 와인","category":"해당 등급","isCurrent":true},{"rank":"③","name":"기본 와인","category":"엔트리 등급"}]},"classificationKey":{"title":"알아야 할 핵심 코드/시스템","items":[{"code":"코드나 용어","meaning":"설명"}]},"essentialContext":"이 와인을 이해하기 위해 반드시 알아야 할 배경 지식 2-3문장. 생산 방식 특이사항, 지역 특성, 위계 체계 등","vintageCharacter":"${v||"해당 빈티지"}년 특성 — 기상 조건, 스타일, 숙성 가능성 2문장","criticalInsight":"이 와인만의 핵심 감상 포인트 또는 구별되는 특징 2문장","peakWindow":"최적 음용 시기 (예: 2028~2038, 지금도 가능)","decanting":"디캔팅 권장 여부 및 시간","servingTemp":"적정 서빙 온도","foodPairing":["최적 페어링 음식1","음식2","음식3"],"similarWines":["비슷한 스타일 와인1","와인2"],"rarityNote":"희소성/생산량/시장 접근성","funFact":"알면 흥미로운 사실 1-2문장"}`, 2500
 );
