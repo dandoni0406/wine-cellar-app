@@ -155,25 +155,25 @@ async function callClaude(prompt, tokens, drive){
   throw new Error("배포 환경에서는 Claude 직접 호출이 안 됩니다. ⚙️ 설정에서 Gemini API 키를 입력해 Gemini로 전환하세요.");
 }
 
-async function callGemini(prompt, apiKey, tokens){
-  const model = "gemini-2.5-flash";  // flash-lite보다 지식 정확도 높음
+async function callGemini(prompt, apiKey, tokens, model){
+  model = model || "gemini-2.5-flash";
+  const isPro = model.includes("pro");
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const genConfig = {
+    maxOutputTokens: Math.max(tokens||2000, isPro?16000:6000),
+    temperature:0.15,
+    responseMimeType:"application/json"   // JSON 모드 강제 → 인사말/마크다운 없이 순수 JSON, 파싱 먹통 방지
+  };
+  if(!isPro) genConfig.thinkingConfig = {thinkingBudget:0};  // Flash만 thinking 끔 (Pro는 thinking 필수라 끄지 않음)
   const r = await fetch(url, {
     method:"POST",
     headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({
-      contents:[{parts:[{text:prompt}]}],
-      generationConfig:{
-        maxOutputTokens: Math.max(tokens||2000, 6000),
-        temperature:0.15,
-        thinkingConfig:{thinkingBudget:0}  // thinking 끄기 → 토큰 잘림 없음 + 빠름
-      }
-    })
+    body:JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:genConfig })
   });
   if(!r.ok) throw new Error(`Gemini HTTP ${r.status}`);
   const data = await r.json();
   if(data.error) throw new Error(data.error.message);
-  // 안전망: thought 파트가 있으면 건너뛰고 실제 응답 파트 사용
+  // thought 파트(Pro 추론과정)는 건너뛰고 실제 JSON 응답 파트 사용
   const parts = data.candidates?.[0]?.content?.parts || [];
   const text = (parts.find(p => !p.thought) || parts[0])?.text || "{}";
   return {content:[{type:"text",text}]};
@@ -184,29 +184,27 @@ let _aiProvider = "gemini"; // deployed default; user supplies Gemini key in Set
 let _geminiKey = "";
 function setAIProvider(p, key){ _aiProvider=p; _geminiKey=key||""; }
 
-async function callAI(prompt, tokens){
+async function callAI(prompt, tokens, model){
   if(_aiProvider==="gemini" && _geminiKey.trim()){
-    return callGemini(prompt, _geminiKey.trim(), tokens);
+    return callGemini(prompt, _geminiKey.trim(), tokens, model);
   }
   return callClaude(prompt, tokens, false);
 }
-async function aiJson(prompt, tokens){
+async function aiJson(prompt, tokens, model){
   try {
-    const d=await callAI(prompt,tokens||1500);
+    const d=await callAI(prompt,tokens||1500,model);
     const raw=d.content?.find(c=>c.type==="text")?.text||"{}";
-    // Strip markdown fences
+    // Strip markdown fences (JSON 모드면 거의 불필요하나 안전망)
     const stripped=raw.replace(/```json\n?|\n?```/g,"").trim();
-    // Try direct parse first
     try { return JSON.parse(stripped); } catch(e1) {}
-    // Extract JSON object from surrounding text (handles "Here is the info: {...}")
     const m=stripped.match(/\{[\s\S]*\}/);
     if(m) { try { return JSON.parse(m[0]); } catch(e2) {} }
-    // Extract JSON array
     const ma=stripped.match(/\[[\s\S]*\]/);
     if(ma) { try { return JSON.parse(ma[0]); } catch(e3) {} }
     return {};
   } catch(e) { return {}; }
 }
+const PRO = "gemini-2.5-pro";  // 품질 중요한 호출용
 // ── AI 라벨 스캐너 (Gemini Vision) ────────────────────────────────
 async function callGeminiVision(prompt, dataUrl, tokens){
   const apiKey=(_geminiKey||"").trim();
@@ -217,7 +215,7 @@ async function callGeminiVision(prompt, dataUrl, tokens){
   const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
   const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:mime,data:b64}}]}],
-      generationConfig:{maxOutputTokens:Math.max(tokens||1500,4000),temperature:0.1,thinkingConfig:{thinkingBudget:0}}})});
+      generationConfig:{maxOutputTokens:Math.max(tokens||1500,4000),temperature:0.1,thinkingConfig:{thinkingBudget:0},responseMimeType:"application/json"}})});
   if(!r.ok) throw new Error(`Gemini HTTP ${r.status}`);
   const data=await r.json();
   if(data.error) throw new Error(data.error.message);
@@ -251,31 +249,31 @@ const lookupWine = (name, v) => aiJson(
 `와인 "${name}"${v?` (${v}빈티지)`:""}의 기본 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만. nameKR/nameEN에 빈티지 포함 금지. 부르고뉴면 isBurgundy=true, 보르도면 isBordeaux=true.
 정확한 사실만 입력. 와인의 실제 생산 국가·지역을 정확히 판단할 것(예: "Beaune/본"은 프랑스 부르고뉴이지 독일이 아님). 확실하지 않은 항목은 추측하지 말고 빈 문자열로 둘 것.
 {"nameKR":"한국어와인명","nameEN":"English name","producer":"생산자","country":"국가","region":"지역","subRegion":"세부지역","vineyard":"포도밭","classification":"등급","grapeVariety":"포도품종","wineType":"Red","drinkFrom":"시작연도숫자","drinkUntil":"종료연도숫자","description":"3문장 한국어 설명","isBurgundy":false,"isBordeaux":false,"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"밭위치설명","expertRatings":{"bh":"","ws":"","wa":"","vinous":"","js":"","jr":"","dec":"","jm":""}}
-중요: expertRatings 각 필드는 실제 점수 숫자(예: 92)가 확인된 경우에만 입력. 없거나 미발표면 반드시 빈 문자열 "" — 절대 설명 텍스트 금지.`, 2000
+중요: expertRatings 각 필드는 실제 점수 숫자(예: 92)가 확인된 경우에만 입력. 없거나 미발표면 반드시 빈 문자열 "" — 절대 설명 텍스트 금지.`, 2000, PRO
 );
 
 // Detailed WSET-level info — called separately from detail page
 const lookupWineDetail = (name, v) => aiJson(
 `와인 "${name}"${v?` (${v})`:""}의 상세 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만.
 {"terroir":{"soilType":"","soilDesc":"","slope":"","aspect":"","altitude":"","vineAge":"","vineyardSize":"","microclimate":"","geology":""},"producerInfo":{"founded":"","size":"","certifications":"","history":"2-3문장","philosophy":"2-3문장","approach":""},"vintageInfo":{"weather":"","harvest":"","characteristics":"2-3문장","agingPotential":""},"winemaking":{"fermentation":"","yeast":"","vessel":"","aging":"","agingVessel":"","agingTime":"","malo":"","filtration":"","sulfur":""},"expertNotes":[{"critic":"","score":"","note":"실제 시음노트를 자연스러운 한국어로 번역해서. 없으면 이 항목 자체를 배열에서 생략","year":""}]}
-중요: expertNotes 배열에 정보가 없는 평론가는 포함하지 말것. note는 반드시 한국어로 번역. 안내 문구, 면책 조항 절대 금지.`, 3000
+중요: expertNotes 배열에 정보가 없는 평론가는 포함하지 말것. note는 반드시 한국어로 번역. 안내 문구, 면책 조항 절대 금지.`, 3000, PRO
 );
 const lookupWineRecommendations = (name, v, region, price) => aiJson(
 `와인 전문가로서 "${name}"${v?` (${v})`:""} (${region||""}${price?`, 가격대 ₩${parseInt(price).toLocaleString()}`:""})과 비슷한 와인을 추천해줘. 마크다운 없이 순수 JSON만 반환.
 {"famous":[{"name":"유명 와인명 (생산자 포함)","region":"지역/국가","priceRange":"가격대 예: ₩15~20만","whySimilar":"추천 이유 1-2문장","producer":"생산자"},{"name":"","region":"","priceRange":"","whySimilar":"","producer":""}],"gems":[{"name":"숨은보석 와인명","region":"지역/국가","priceRange":"가격대","whySimilar":"추천 이유 1-2문장","producer":"생산자"},{"name":"","region":"","priceRange":"","whySimilar":"","producer":""}],"note":"전반적인 추천 코멘트 1문장"}
 famous: 잘 알려진 대안 2-3개 (비슷한 등급·스타일·가격대)
-gems: 덜 알려졌지만 가성비 좋거나 품질 뛰어난 와인 2-3개`, 1500
+gems: 덜 알려졌지만 가성비 좋거나 품질 뛰어난 와인 2-3개`, 1500, PRO
 );
 
 const lookupWineInsights = (name, v) => aiJson(
 `와인 전문가 수준으로 "${name}"${v?` (${v}빈티지)`:""}에 대한 심화 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만.
 반드시 정확한 사실만 작성. 와인의 실제 국가·산지를 정확히 확인할 것. 확실하지 않은 항목은 빈 문자열로 두고 절대 추측하거나 지어내지 말 것.
 
-{"hierarchy":{"description":"이 와인이 생산자 라인업에서 차지하는 위치 설명 (예: VDP.Grosse Lage > VDP.Ortswein > VDP.Gutswein 중 해당 등급)","table":[{"rank":"①","name":"최상위 와인명","category":"VDP/AOC 분류"},{"rank":"②","name":"이 와인","category":"해당 등급","isCurrent":true},{"rank":"③","name":"기본 와인","category":"엔트리 등급"}]},"classificationKey":{"title":"알아야 할 핵심 코드/시스템","items":[{"code":"코드나 용어","meaning":"설명"}]},"essentialContext":"이 와인을 이해하기 위해 반드시 알아야 할 배경 지식 2-3문장. 생산 방식 특이사항, 지역 특성, 위계 체계 등","vintageCharacter":"${v||"해당 빈티지"}년 특성 — 기상 조건, 스타일, 숙성 가능성 2문장","criticalInsight":"이 와인만의 핵심 감상 포인트 또는 구별되는 특징 2문장","peakWindow":"최적 음용 시기 (예: 2028~2038, 지금도 가능)","decanting":"디캔팅 권장 여부 및 시간","servingTemp":"적정 서빙 온도","foodPairing":["최적 페어링 음식1","음식2","음식3"],"similarWines":["비슷한 스타일 와인1","와인2"],"rarityNote":"희소성/생산량/시장 접근성","funFact":"알면 흥미로운 사실 1-2문장"}`, 2500
+{"hierarchy":{"description":"이 와인이 생산자 라인업에서 차지하는 위치 설명 (예: VDP.Grosse Lage > VDP.Ortswein > VDP.Gutswein 중 해당 등급)","table":[{"rank":"①","name":"최상위 와인명","category":"VDP/AOC 분류"},{"rank":"②","name":"이 와인","category":"해당 등급","isCurrent":true},{"rank":"③","name":"기본 와인","category":"엔트리 등급"}]},"classificationKey":{"title":"알아야 할 핵심 코드/시스템","items":[{"code":"코드나 용어","meaning":"설명"}]},"essentialContext":"이 와인을 이해하기 위해 반드시 알아야 할 배경 지식 2-3문장. 생산 방식 특이사항, 지역 특성, 위계 체계 등","vintageCharacter":"${v||"해당 빈티지"}년 특성 — 기상 조건, 스타일, 숙성 가능성 2문장","criticalInsight":"이 와인만의 핵심 감상 포인트 또는 구별되는 특징 2문장","peakWindow":"최적 음용 시기 (예: 2028~2038, 지금도 가능)","decanting":"디캔팅 권장 여부 및 시간","servingTemp":"적정 서빙 온도","foodPairing":["최적 페어링 음식1","음식2","음식3"],"similarWines":["비슷한 스타일 와인1","와인2"],"rarityNote":"희소성/생산량/시장 접근성","funFact":"알면 흥미로운 사실 1-2문장"}`, 2500, PRO
 );
 
 const correctWine = (name, v) => aiJson(`와인 "${name}"${v?` 빈티지 ${v}`:""}을 보정해서 JSON만. nameKR/nameEN에 빈티지 포함 금지.
-{"nameKR":"","nameEN":"","vintage":"","producer":"","region":"","country":"","wineType":"Red|White|Rosé|Sparkling|Dessert|Fortified","isBurgundy":false}`);
+{"nameKR":"","nameEN":"","vintage":"","producer":"","region":"","country":"","wineType":"Red|White|Rosé|Sparkling|Dessert|Fortified","isBurgundy":false}`, 1500, PRO);
 const structNote = (txt, wine) => aiJson(`"${wine}" 시음메모를 JSON으로만. 메모:"${txt}"
 {"color":"","noseIntensity":"약함|중간|강함","noseAromas":"","sweetness":"드라이|오프드라이|미디엄|스위트","acidity":"낮음|중간-|중간|중간+|높음","tannin":"","alcohol":"낮음|중간|높음","body":"라이트|미디엄-|미디엄|미디엄+|풀","flavors":"","finish":"짧음|중간|김","overallImpression":"2-3문장","rating":"숫자만","repurchase":"예|보통|아니오"}`);
 
