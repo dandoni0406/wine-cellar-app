@@ -6,6 +6,43 @@ import './storage.js';
 const STORAGE_KEY = "wine-cellar-v6";
 const CY = new Date().getFullYear();
 const RED = "#8B2635", GOLD = "#9A7020";
+// ── WSET 시음 지표 레퍼런스 (구글시트 config 기반) ──
+const T_SCALE = {
+  noseIntensity:["약함","중간-","중간","중간+","강함"],
+  acidity:["낮음","중간-","중간","중간+","높음"],
+  tannin:["거의 없음","부드러움","중간","뻑뻑함","매우 강함"],
+  body:["가벼움","다소 가벼움","중간","다소 무거움","풀 바디"],
+  finish:["짧음","약간 짧음","중간","약간 김","김"],
+};
+const T_COLOR = {
+  White:["그린 레몬","레몬","골드","앰버"],
+  Red:["퍼플","루비","가넷","벽돌/타니"],
+  "Rosé":["핑크","연어색","오렌지"],
+  Sparkling:["레몬","골드","핑크"],
+  Dessert:["골드","앰버","갈색"],
+  Fortified:["루비","가넷","갈색"],
+};
+const T_SWEET = ["완전 드라이","드라이","살짝 단맛","반건조","중간 단맛","스위트","매우 달콤"];
+const T_ALC = ["낮음","중간","높음","주정강화"];
+const T_AROMA = [
+  ["꽃",[["🌸","장미"],["💐","제비꽃"],["🌼","아카시아"],["🍯","인동초"],["🍊","오렌지블라썸"],["🍂","말린꽃"]]],
+  ["시트러스",[["🍋","레몬"],["🟢","라임"],["🍊","자몽"],["🔸","오렌지껍질"]]],
+  ["핵과/인과",[["🍏","청사과"],["🍐","배"],["🍑","복숭아"],["🥭","살구"]]],
+  ["열대과일",[["🍍","파인애플"],["🥭","망고"],["🍈","리치"],["🟠","패션후르츠"]]],
+  ["레드베리",[["🍓","딸기"],["🍒","라즈베리"],["🍒","레드체리"],["🔴","레드커런트"]]],
+  ["블랙베리",[["🫐","블랙베리"],["🍇","블랙커런트"],["🖤","블랙체리"],["🫐","블루베리"],["🟣","자두/플럼"]]],
+  ["허브",[["🌿","민트"],["🍃","유칼립투스"],["🌿","로즈마리"],["🌿","타임"],["🌱","갓자른풀"]]],
+  ["채소",[["🫑","피망"],["🎋","아스파라거스"],["🍅","토마토잎"]]],
+  ["스파이스",[["🧂","검은후추"],["⚪","흰후추"],["🍭","감초"],["🔨","정향"],["🪵","시나몬"]]],
+  ["오크(2차)",[["🍦","바닐라"],["🥥","코코넛"],["🍞","토스트"],["🌲","시더"],["💨","스모크"],["🧈","버터/크림"],["🍪","비스킷/빵"]]],
+  ["숙성(3차)",[["👞","가죽"],["🐄","외양간/고기"],["🪵","흙/숲바닥"],["🍄","버섯"],["💎","트러플"],["🚬","담배"],["✏️","흑연"],["🌰","견과"],["🍇","건과일"]]],
+  ["미네랄",[["🔥","부싯돌"],["🪨","젖은돌"],["⚪","분필"]]],
+];
+const T_FLAVOR = [
+  ["상태",[["✨","신선/아삭"],["☀️","잘익은"],["🍯","졸인/잼"],["🏜️","말린"],["🍂","산화된"]]],
+  ["풍미",[["🫐","야생베리"],["🍇","검은과실"],["🍋","시트러스제스트"],["🍯","꿀/밀랍"],["🍫","다크초콜릿"],["🍫","밀크초콜릿"],["☕","커피"],["🍮","캐러멜"],["🥜","구운견과"],["🥩","감칠맛"],["🧪","약초/한약재"],["🍵","홍차"],["🏴","타르"],["✏️","흑연/광물"],["🧂","짭짤한"]]],
+  ["질감",[["🍦","크리미"],["🧴","오일리"],["☁️","파우더리"],["💦","쥬시"],["⚡","거친"],["🧣","실키"],["🍷","벨벳"]]],
+];
 const GDRIVE_MCP = "https://drivemcp.googleapis.com/mcp/v1";
 const GDRIVE_FILE = "wine-cellar-data.json";
 
@@ -265,6 +302,7 @@ JSON 배열만 반환, 다른 텍스트 없이.`,12000,true);
 const lookupWine = (name, v) => aiJson(
 `와인 "${name}"${v?` (${v}빈티지)`:""}의 기본 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만. nameKR/nameEN에 빈티지 포함 금지. 부르고뉴면 isBurgundy=true, 보르도면 isBordeaux=true.
 정확한 사실만 입력. 와인의 실제 생산 국가·지역을 정확히 판단할 것(예: "Beaune/본"은 프랑스 부르고뉴이지 독일이 아님). 확실하지 않은 항목은 추측하지 말고 빈 문자열로 둘 것.
+사용자가 입력한 와인명은 대충 적은 한글이거나 부정확할 수 있음. nameKR은 입력값을 그대로 두지 말고 반드시 정확한 공식 한글 표기로 교정해서 채울 것 (예: "샤또딸보"→"샤토 탈보", "본로마네"→"본 로마네").
 {"nameKR":"한국어와인명","nameEN":"English name","producer":"생산자","country":"국가","region":"지역","subRegion":"세부지역","vineyard":"포도밭","classification":"등급","grapeVariety":"포도품종","wineType":"Red","drinkFrom":"시작연도숫자","drinkUntil":"종료연도숫자","description":"3문장 한국어 설명","isBurgundy":false,"isBordeaux":false,"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"밭위치설명","expertRatings":{"bh":"","ws":"","wa":"","vinous":"","js":"","jr":"","dec":"","jm":""}}
 중요: expertRatings 각 필드는 실제 점수 숫자(예: 92)가 확인된 경우에만 입력. 없거나 미발표면 반드시 빈 문자열 "" — 절대 설명 텍스트 금지.`, 2000, PRO
 );
@@ -1517,9 +1555,91 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
 }
 
 // ── Add Tasting Page ──────────────────────────────────────────────
+// ── WSET 시음 지표 아이콘 피커 ──
+function TScale({ label, opts, value, onChange }) {
+  return (
+    <div style={{marginBottom:13}}>
+      <div style={{fontSize:12,fontWeight:600,color:"#555",marginBottom:5}}>{label}</div>
+      <div style={{display:"flex",gap:4}}>
+        {opts.map((o,i)=>{ const on=value===o; return (
+          <button key={o} onClick={()=>onChange(on?"":o)} style={{flex:1,padding:"6px 1px",borderRadius:7,cursor:"pointer",border:`1px solid ${on?RED:"#ddd"}`,background:on?RED:"#fff",color:on?"#fff":"#888",fontWeight:on?700:400,lineHeight:1.3}}>
+            <div style={{fontSize:13}}>{i+1}</div><div style={{fontSize:9}}>{o}</div>
+          </button> ); })}
+      </div>
+    </div>
+  );
+}
+function TChips({ label, opts, value, onChange }) {
+  return (
+    <div style={{marginBottom:13}}>
+      <div style={{fontSize:12,fontWeight:600,color:"#555",marginBottom:5}}>{label}</div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:5}}>
+        {opts.map(o=>{ const on=value===o; return (
+          <button key={o} onClick={()=>onChange(on?"":o)} style={{padding:"5px 11px",fontSize:12,borderRadius:20,cursor:"pointer",border:`1px solid ${on?RED:"#ddd"}`,background:on?"#FDF1F2":"#fff",color:on?RED:"#666",fontWeight:on?600:400}}>{o}</button>
+        ); })}
+      </div>
+    </div>
+  );
+}
+function TAroma({ label, groups, value, onChange }) {
+  const sel = value||[];
+  const toggle = chip => onChange(sel.includes(chip)?sel.filter(x=>x!==chip):[...sel,chip]);
+  return (
+    <div style={{marginBottom:13}}>
+      <div style={{fontSize:12,fontWeight:600,color:"#555",marginBottom:6}}>{label}{sel.length>0&&<span style={{color:RED}}> ({sel.length})</span>}</div>
+      {groups.map(([cat,items])=>(
+        <div key={cat} style={{marginBottom:7}}>
+          <div style={{fontSize:10,color:"#bbb",marginBottom:3}}>{cat}</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+            {items.map(([emoji,name],i)=>{ const chip=`${emoji} ${name}`; const on=sel.includes(chip); return (
+              <button key={name+i} onClick={()=>toggle(chip)} style={{padding:"4px 8px",fontSize:11,borderRadius:16,cursor:"pointer",border:`1px solid ${on?RED:"#e8e8e8"}`,background:on?"#FDF1F2":"#fff",color:on?RED:"#555",fontWeight:on?600:400}}>{emoji} {name}</button>
+            ); })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+function WSETPicker({ wset, setWset, wineType }) {
+  const up = (k,v)=> setWset(p=>({...p,[k]:v}));
+  const colorOpts = T_COLOR[wineType]||T_COLOR.Red;
+  return (
+    <div>
+      <TChips label="🎨 색 (Color)" opts={colorOpts} value={wset.color} onChange={v=>up("color",v)}/>
+      <TScale label="👃 향 강도 (Intensity)" opts={T_SCALE.noseIntensity} value={wset.noseIntensity} onChange={v=>up("noseIntensity",v)}/>
+      <TAroma label="🌸 향 (Aromas)" groups={T_AROMA} value={wset._aromas} onChange={v=>up("_aromas",v)}/>
+      <TChips label="🍬 당도 (Sweetness)" opts={T_SWEET} value={wset.sweetness} onChange={v=>up("sweetness",v)}/>
+      <TScale label="🍋 산도 (Acidity)" opts={T_SCALE.acidity} value={wset.acidity} onChange={v=>up("acidity",v)}/>
+      <TScale label="🍷 타닌 (Tannin)" opts={T_SCALE.tannin} value={wset.tannin} onChange={v=>up("tannin",v)}/>
+      <TChips label="🥃 알코올 (Alcohol)" opts={T_ALC} value={wset.alcohol} onChange={v=>up("alcohol",v)}/>
+      <TScale label="💪 바디 (Body)" opts={T_SCALE.body} value={wset.body} onChange={v=>up("body",v)}/>
+      <TAroma label="👅 풍미·질감 (Flavors)" groups={T_FLAVOR} value={wset._flavors} onChange={v=>up("_flavors",v)}/>
+      <TScale label="⏱ 피니쉬 (Finish)" opts={T_SCALE.finish} value={wset.finish} onChange={v=>up("finish",v)}/>
+    </div>
+  );
+}
+// wset 상태 → 노트 필드로 변환
+function wsetToFields(w){
+  if(!w) return {};
+  return {
+    ...(w.color?{color:w.color}:{}),
+    ...(w.noseIntensity?{noseIntensity:w.noseIntensity}:{}),
+    ...(w._aromas?.length?{noseAromas:w._aromas.join(", ")}:{}),
+    ...(w.sweetness?{sweetness:w.sweetness}:{}),
+    ...(w.acidity?{acidity:w.acidity}:{}),
+    ...(w.tannin?{tannin:w.tannin}:{}),
+    ...(w.alcohol?{alcohol:w.alcohol}:{}),
+    ...(w.body?{body:w.body}:{}),
+    ...(w._flavors?.length?{flavors:w._flavors.join(", ")}:{}),
+    ...(w.finish?{finish:w.finish}:{}),
+  };
+}
+
 function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] }) {
   const [mode, sm] = useState("cellar");
   const [sel, ss] = useState(wine);
+  const [wset, setWset] = useState({});
+  const [showWset, setShowWset] = useState(false);
   const [en, sn] = useState(""), [ev, sev] = useState(""), [correcting, sc] = useState(false), [corrected, scr] = useState(null);
   const [txt, st] = useState(""), [structured, ssr] = useState(null), [loading, sl] = useState(false);
   const [myScore, setMyScore] = useState("");
@@ -1532,6 +1652,23 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
   const canSave = mode==="cellar" ? !!sel : !!en;
   async function doCorrect() { sc(true); try{scr(await correctWine(en,ev));}catch(e){} sc(false); }
   async function doStr() { sl(true); try{ssr(await structNote(txt,wName));}catch(e){} sl(false); }
+  // 라벨 스캔 (직접입력 모드)
+  const scanRef = useRef(null);
+  const [scanning2, setScanning2] = useState(false);
+  const [scanErr2, setScanErr2] = useState("");
+  async function onScanTaste(e){
+    const f=e.target.files?.[0]; if(!f) return;
+    setScanErr2(""); setScanning2(true);
+    try{
+      const dataUrl=await compressImage(f);
+      const res=await scanLabel(dataUrl);
+      const nm=res.nameEN||res.producer;
+      if(!nm){ setScanErr2("라벨에서 와인명을 못 읽었어요. 직접 입력해주세요."); setScanning2(false); if(scanRef.current)scanRef.current.value=""; return; }
+      sn(nm); if(res.vintage) sev(String(res.vintage));
+      scr(await correctWine(nm, res.vintage?String(res.vintage):""));
+    }catch(err){ const m=String(err.message||err); setScanErr2(m.includes("429")?"AI 한도 초과 — 잠시 후 다시 시도하세요":"스캔 실패: "+m); }
+    setScanning2(false); if(scanRef.current)scanRef.current.value="";
+  }
   return (
     <div style={{minHeight:"100vh",background:"#F7F4F0",fontFamily:"system-ui,sans-serif"}}>
       <TopBar title="📝 시음노트 작성" onBack={onBack}/>
@@ -1561,6 +1698,11 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
             </div>
           ) : (
             <div>
+              <input ref={scanRef} type="file" accept="image/*" onChange={onScanTaste} style={{display:"none"}}/>
+              <button onClick={()=>scanRef.current?.click()} disabled={scanning2} style={{width:"100%",padding:"9px",background:scanning2?"#eee":"#FBF4E4",color:GOLD,border:`1px solid ${GOLD}40`,borderRadius:8,fontSize:13,fontWeight:600,cursor:scanning2?"default":"pointer",marginBottom:10}}>
+                {scanning2?"📸 라벨 읽는 중...":"📸 라벨 사진으로 자동 입력"}
+              </button>
+              {scanErr2 && <div style={{fontSize:11,color:"#991B1B",marginBottom:8}}>{scanErr2}</div>}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:8}}>
                 <FF label="와인 이름 *" value={en} onChange={e=>sn(e.target.value)} placeholder="예: Gevrey-Chambertin"/>
                 <FF label="빈티지" value={ev} onChange={e=>sev(e.target.value)} placeholder="예: 2020"/>
@@ -1632,6 +1774,20 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
             </div>
           </div>
         </div>
+        <div style={CS}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setShowWset(s=>!s)}>
+            <SH style={{marginBottom:0}}>🎯 시음 지표 (WSET)</SH>
+            <span style={{fontSize:18,color:GOLD}}>{showWset?"−":"+"}</span>
+          </div>
+          {showWset && (
+            <div style={{marginTop:14}}>
+              <WSETPicker wset={wset} setWset={setWset} wineType={mode==="cellar"?(sel?.wineType):(corrected?.wineType)}/>
+            </div>
+          )}
+          {!showWset && (
+            <div style={{fontSize:12,color:"#aaa",marginTop:6}}>색·향·당도·산도·타닌·바디 등을 아이콘으로 기록 (선택)</div>
+          )}
+        </div>
         {structured && (
           <div style={{...CS,border:`1px solid ${GOLD}40`}}>
             <SH>✨ AI 정리 결과</SH>
@@ -1663,6 +1819,7 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
             ...meta,
             freeText:txt,
             ...(structured||{}),
+            ...wsetToFields(wset),
             ...(myScore?{rating:myScore}:{}),
             ...(myRepurchase?{repurchase:myRepurchase}:{}),
           });
@@ -1695,16 +1852,18 @@ function NoteDetailPage({ note, wine, onBack, onDelete }) {
         </div>
         <div style={CS}>
           {note.color && (<div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:4,textTransform:"uppercase"}}>외관</div><div style={{fontSize:14,lineHeight:1.7}}>{note.color}</div></div>)}
-          {(note.noseIntensity||note.noseAromas) && (<div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:4,textTransform:"uppercase"}}>후각</div><div style={{fontSize:14,lineHeight:1.7}}>{[note.noseIntensity&&`강도: ${note.noseIntensity}`,note.noseAromas].filter(Boolean).join(" · ")}</div></div>)}
-          {(note.sweetness||note.tannin||note.body) && (
+          {(note.noseIntensity||note.noseAromas) && (<div style={{marginBottom:12}}><div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:6,textTransform:"uppercase"}}>후각 {note.noseIntensity&&<span style={{color:GOLD}}>· 강도 {note.noseIntensity}</span>}</div>
+            {note.noseAromas && <div style={{display:"flex",flexWrap:"wrap",gap:5}}>{note.noseAromas.split(/,\s*/).filter(Boolean).map((a,i)=>(<span key={i} style={{fontSize:12,background:"#FBF8F4",border:"1px solid #f0e8de",borderRadius:16,padding:"3px 10px",color:"#555"}}>{a}</span>))}</div>}
+          </div>)}
+          {(note.sweetness||note.tannin||note.body||note.acidity||note.alcohol||note.finish||note.flavors) && (
             <div style={{marginBottom:12}}>
               <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:8,textTransform:"uppercase"}}>미각</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:6}}>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:note.flavors?8:0}}>
                 {[["당도",note.sweetness],["산도",note.acidity],["타닌",note.tannin],["알코올",note.alcohol],["바디",note.body],["피니쉬",note.finish]].filter(([,vv])=>vv).map(([kk,vv]) => (
-                  <span key={kk} style={{fontSize:13,background:"#f5f2ee",borderRadius:6,padding:"4px 12px"}}>{kk}: {vv}</span>
+                  <span key={kk} style={{fontSize:13,background:"#f5f2ee",borderRadius:6,padding:"4px 12px"}}>{kk}: <b style={{color:RED}}>{vv}</b></span>
                 ))}
               </div>
-              {note.flavors && (<div style={{fontSize:14,lineHeight:1.7}}>{note.flavors}</div>)}
+              {note.flavors && <div style={{display:"flex",flexWrap:"wrap",gap:5}}>{note.flavors.split(/,\s*/).filter(Boolean).map((a,i)=>(<span key={i} style={{fontSize:12,background:"#FBF8F4",border:"1px solid #f0e8de",borderRadius:16,padding:"3px 10px",color:"#555"}}>{a}</span>))}</div>}
             </div>
           )}
           {note.overallImpression && (<div><div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:4,textTransform:"uppercase"}}>총평</div><div style={{fontSize:14,lineHeight:1.7}}>{note.overallImpression}</div></div>)}
