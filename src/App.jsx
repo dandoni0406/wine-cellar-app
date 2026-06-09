@@ -402,9 +402,45 @@ _reasoning 예시: "생산자는 Domaine Georges Mugneret-Gibourg, 산지는 프
 "producerInfo":{"founded":"","size":"","certifications":"","history":"2-3문장","philosophy":"2-3문장","approach":""},
 "vintageInfo":{"weather":"","harvest":"","characteristics":"2-3문장","agingPotential":""},
 "winemaking":{"fermentation":"","yeast":"","vessel":"","aging":"","agingVessel":"","agingTime":"","malo":"","filtration":"","sulfur":""},
-"expertNotes":[{"critic":"","score":"","note":"한국어 번역","year":""}],
-"insights":{"hierarchy":{"description":"생산자 라인업 내 위치","table":[{"rank":"①","name":"","category":"","isCurrent":false}]},"classificationKey":{"title":"핵심 코드/시스템","items":[{"code":"","meaning":""}]},"essentialContext":"배경지식 2-3문장","vintageCharacter":"빈티지 특성 2문장","criticalInsight":"핵심 감상 포인트 2문장","peakWindow":"최적 음용시기","decanting":"디캔팅 권장","servingTemp":"서빙온도","foodPairing":["음식1","음식2","음식3"],"rarityNote":"희소성","funFact":"흥미로운 사실"}
+"expertNotes":[{"critic":"","score":"","note":"한국어 번역","year":""}]
 }`, 6000);
+};
+
+// 심층 인사이트 — 별도 집중 호출(Flash가 한 주제에 집중 → 풍부·정확)
+const deepInsights = (name, v, anchor) => {
+  const a = anchor||{};
+  const known = [a.producer&&`생산자:${a.producer}`, a.country&&`국가:${a.country}`, a.region&&`지역:${a.region}`, a.grapeVariety&&`품종:${a.grapeVariety}`].filter(Boolean).join(" / ");
+  return aiJson(
+`<role>
+당신은 WSET 디플로마 소지자이자 Burghound 수준의 분석력을 갖춘 와인 전문 작가다. 와인을 심층적으로 탐구하는 애호가를 위해, 검증된 사실에 기반해 깊이 있고 풍부하게 서술한다.
+</role>
+
+<task>
+와인 "${name}"${v?` (${v} 빈티지)`:""}에 대한 심층 해설을 아래 JSON으로만 반환한다.
+</task>
+${known?`<known_facts>\n${known}\n</known_facts>`:""}
+<rules>
+1. 확실한 사실은 충실하고 길게 서술하되, 모르거나 불확실한 내용은 짧게 하거나 빈 문자열("")로 둔다. 추측성 미사여구·일반론으로 분량을 채우지 마라. 거짓 정보는 치명적 오류다.
+2. 먼저 _reasoning에서 이 와인의 국가·지역·생산자·품종·등급을 팩트체크한 뒤 작성한다. ("Beaune/본"은 프랑스 부르고뉴이지 독일이 아님)
+3. 구체적이고 전문적으로. "좋은 와인이다" 같은 공허한 표현 대신, 왜 그런지 메커니즘과 근거를 든다.
+4. 마크다운 없이 순수 JSON만.
+</rules>
+
+{
+"_reasoning":"국가·지역·생산자·품종·등급 팩트체크 2-3문장",
+"winemakingImpact":"이 와인의 경작(테루아·수확)·발효·숙성 방식이 실제로 향과 맛에 어떻게 나타나는지 인과적으로 4-6문장. 예: 새 오크 비율과 바닐라·토스트 풍미의 관계, MLF와 질감, 줄기 사용과 구조감 등. 확인된 양조 정보 기반.",
+"producerStory":"생산자의 역사·철학·양조 스타일을 심층적으로 4-6문장. 설립 배경, 세대 교체, 떼루아 철학, 시그니처 스타일 등 확인된 사실 위주.",
+"predictedPalate":"전문가 평가와 품종·산지·빈티지 특성을 종합해 예상되는 시음 프로파일을 4-6문장으로. 외관→향(1·2·3차)→입안(당도·산도·타닌·바디)→여운 순으로 구체적으로.",
+"stories":[{"title":"소재(생산자/산지/품종 중)","content":"숨은 이야기나 알아두면 좋은 배경지식 2-3문장"}],
+"essentialContext":"이 와인을 이해하기 위한 핵심 배경(등급 체계, 산지 특성 등) 3-4문장",
+"hierarchy":{"description":"생산자 라인업 내 위치 설명","table":[{"rank":"①","name":"","category":"","isCurrent":false}]},
+"classificationKey":{"title":"알아야 할 핵심 코드/시스템","items":[{"code":"","meaning":""}]},
+"vintageCharacter":"${v||"해당"} 빈티지의 기상·작황·스타일·숙성잠재력 3-4문장",
+"criticalInsight":"이 와인만의 구별되는 핵심 포인트 2-3문장",
+"peakWindow":"최적 음용 시기","decanting":"디캔팅 권장 여부·시간","servingTemp":"적정 서빙 온도",
+"foodPairing":["페어링1","페어링2","페어링3","페어링4"],
+"rarityNote":"생산량·희소성·시장 접근성","funFact":"흥미로운 사실 1-2문장"
+}`, 8000);
 };
 
 const correctWine = (name, v) => aiJson(`와인 "${name}"${v?` 빈티지 ${v}`:""}을 보정해서 JSON만. nameKR/nameEN에 빈티지 포함 금지.
@@ -1138,10 +1174,14 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
     try{
       const name=wine.nameKR||wine.nameEN;
       const v=wine.vintage;
-      const r = await enrichAll(name, v, {producer:wine.producer, country:wine.country, region:wine.region, grapeVariety:wine.grapeVariety, wineType:wine.wineType});   // 앵커 정보로 환각 차단
-      const { insights, _reasoning, ...flat } = r;
+      const r = await enrichAll(name, v, {producer:wine.producer, country:wine.country, region:wine.region, grapeVariety:wine.grapeVariety, wineType:wine.wineType});   // 데이터 채우기 (Flash 1)
+      const { insights:_ig, _reasoning, ...flat } = r;
       const notes = flat.expertNotes?.length ? flat.expertNotes : (wine.expertNotes||[]);
       const mergedRat = syncRatings(notes, {...(wine.expertRatings||{}), ...(flat.expertRatings||{})});
+      // 심층 인사이트 별도 호출 (Flash 2) — 갱신된 정보를 앵커로
+      const anc = {producer:flat.producer||wine.producer, country:flat.country||wine.country, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety};
+      const ins = await deepInsights(name, v, anc);
+      const { _reasoning:_ir, ...insights } = ins;
       onUpdate({
         ...flat,
         nameKR: wine.nameKR||flat.nameKR||"",
@@ -1155,9 +1195,9 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
         vintageInfo: {...(wine.vintageInfo||{}), ...(flat.vintageInfo||{})},
         winemaking: {...(wine.winemaking||{}), ...(flat.winemaking||{})},
         expertNotes: notes.filter(n=>!isDisclaimerNote(n.note)),
-        wineInsights: insights || wine.wineInsights || null,
+        wineInsights: insights,
       });
-      if(insights) setInsights(insights);
+      setInsights(insights);
       // 셀러 비슷한 와인도 자동 (Flash 1회) — 갱신된 정보 기준
       const merged = {...wine, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety, wineType:flat.wineType||wine.wineType, country:flat.country||wine.country};
       const rec = await recommendFromCellar(merged, wines);
@@ -1431,6 +1471,24 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                       <div style={{fontSize:13,color:"#333",lineHeight:1.6}}>{insights.criticalInsight}</div>
                     </div>
                   )}
+                  {insights.predictedPalate && (
+                    <div style={{marginBottom:12,background:"#FBF6F2",borderRadius:8,padding:"12px 14px",borderLeft:`3px solid ${RED}`}}>
+                      <div style={{fontSize:11,fontWeight:700,color:RED,marginBottom:5}}>🍷 종합 예상 시음노트</div>
+                      <div style={{fontSize:13,color:"#333",lineHeight:1.7}}>{insights.predictedPalate}</div>
+                    </div>
+                  )}
+                  {insights.winemakingImpact && (
+                    <div style={{marginBottom:12}}>
+                      <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:4,textTransform:"uppercase"}}>⚗️ 양조가 향·맛에 미치는 영향</div>
+                      <div style={{fontSize:13,color:"#555",lineHeight:1.7}}>{insights.winemakingImpact}</div>
+                    </div>
+                  )}
+                  {insights.producerStory && (
+                    <div style={{marginBottom:12}}>
+                      <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:4,textTransform:"uppercase"}}>🏛 생산자 이야기</div>
+                      <div style={{fontSize:13,color:"#555",lineHeight:1.7}}>{insights.producerStory}</div>
+                    </div>
+                  )}
                   {/* Vintage character */}
                   {insights.vintageCharacter && (
                     <div style={{marginBottom:10}}>
@@ -1467,6 +1525,17 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                     </div>
                   )}
                   {/* Fun fact */}
+                  {insights.stories?.length > 0 && (
+                    <div style={{marginBottom:12}}>
+                      <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:6,textTransform:"uppercase"}}>📚 알아두면 좋은 이야기</div>
+                      {insights.stories.filter(s=>s&&s.content).map((s,i)=>(
+                        <div key={i} style={{marginBottom:8,paddingLeft:10,borderLeft:`2px solid ${GOLD}40`}}>
+                          {s.title && <div style={{fontSize:12,fontWeight:700,color:GOLD,marginBottom:2}}>{s.title}</div>}
+                          <div style={{fontSize:12,color:"#666",lineHeight:1.6}}>{s.content}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {insights.funFact && <div style={{fontSize:12,color:"#888",fontStyle:"italic",marginBottom:6}}>💬 {insights.funFact}</div>}
                 </div>
             </div>
