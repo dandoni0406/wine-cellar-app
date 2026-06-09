@@ -1663,6 +1663,13 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                     ))}
                   </div>
                 )}
+                {(()=>{
+                  // 작성자별 최신(지표 있는) 노트로 레이더 구성
+                  const byTaster = {};
+                  notes.filter(noteHasRadar).forEach(n=>{ const t=n.taster||"기록"; if(!byTaster[t]||(n.createdAt||n.date||"")>(byTaster[t].createdAt||byTaster[t].date||"")) byTaster[t]=n; });
+                  const ents = Object.entries(byTaster).map(([t,n])=>({label:t,color:t===tasters[1]?"#2E7D32":RED,values:noteRadarValues(n)}));
+                  return ents.length>0 ? (<div style={{margin:"4px 0 14px"}}><TasteRadar entries={ents}/></div>) : null;
+                })()}
                 {notes.map(n => (
                   <div key={n.id} style={{padding:"10px 0",borderBottom:"1px solid #f7f4f0"}}>
                     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
@@ -2091,6 +2098,50 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
 }
 
 // ── Note Detail Page ──────────────────────────────────────────────
+// ── 시음 레이더 차트 (순수 SVG, 오각형) ──
+function normScale(value, opts){ const i=(opts||[]).indexOf(value); return i<0?0:(i/(opts.length-1))*5; }
+const RADAR_AXES = ["당도","산도","타닌","바디","피니쉬"];
+function noteRadarValues(n){
+  return [
+    normScale(n.sweetness, T_SWEET),
+    normScale(n.acidity, T_SCALE.acidity),
+    normScale(n.tannin, T_SCALE.tannin),
+    normScale(n.body, T_SCALE.body),
+    normScale(n.finish, T_SCALE.finish),
+  ];
+}
+function noteHasRadar(n){ return [n.sweetness,n.acidity,n.tannin,n.body,n.finish].filter(Boolean).length>=3; }
+function TasteRadar({ entries }) {
+  const cx=130, cy=125, R=80, N=5;
+  const ang = i => (-90 + i*(360/N)) * Math.PI/180;
+  const pt = (i, r) => [cx + r*Math.cos(ang(i)), cy + r*Math.sin(ang(i))];
+  const rings = [1,2,3,4,5].map(k => RADAR_AXES.map((_,i)=>pt(i, R*k/5).join(",")).join(" "));
+  return (
+    <div>
+      <svg viewBox="0 0 260 250" style={{width:"100%",maxWidth:300,display:"block",margin:"0 auto"}}>
+        {rings.map((p,i)=>(<polygon key={i} points={p} fill={i===4?"#fafafa":"none"} stroke="#ececec" strokeWidth="1"/>))}
+        {RADAR_AXES.map((ax,i)=>{ const [x,y]=pt(i,R); const [lx,ly]=pt(i,R+17); return (
+          <g key={ax}>
+            <line x1={cx} y1={cy} x2={x} y2={y} stroke="#e8e8e8" strokeWidth="1"/>
+            <text x={lx} y={ly} fontSize="11" fontWeight="600" fill="#777" textAnchor="middle" dominantBaseline="middle">{ax}</text>
+          </g>
+        );})}
+        {entries.map((e,ei)=>{
+          const poly = e.values.map((v,i)=>pt(i, R*Math.max(0,Math.min(5,v))/5).join(",")).join(" ");
+          return <g key={ei}><polygon points={poly} fill={e.color+"22"} stroke={e.color} strokeWidth="2"/>
+            {e.values.map((v,i)=>{const[x,y]=pt(i,R*Math.max(0,Math.min(5,v))/5);return <circle key={i} cx={x} cy={y} r="2.5" fill={e.color}/>;})}
+          </g>;
+        })}
+      </svg>
+      {entries.length>1 && (
+        <div style={{display:"flex",justifyContent:"center",gap:14,marginTop:4}}>
+          {entries.map((e,i)=>(<span key={i} style={{display:"flex",alignItems:"center",gap:5,fontSize:12,color:"#666"}}><span style={{width:11,height:11,borderRadius:3,background:e.color,display:"inline-block"}}/>{e.label}</span>))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function NoteDetailPage({ note, wine, onBack, onDelete }) {
   return (
     <div style={{minHeight:"100vh",background:"#F7F4F0",fontFamily:"system-ui,sans-serif"}}>
@@ -2117,6 +2168,7 @@ function NoteDetailPage({ note, wine, onBack, onDelete }) {
           {(note.sweetness||note.tannin||note.body||note.acidity||note.alcohol||note.finish||note.flavors) && (
             <div style={{marginBottom:12}}>
               <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:8,textTransform:"uppercase"}}>미각</div>
+              {noteHasRadar(note) && <div style={{marginBottom:14}}><TasteRadar entries={[{label:note.taster||"",color:RED,values:noteRadarValues(note)}]}/></div>}
               <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:note.flavors?8:0}}>
                 {[["당도",note.sweetness],["산도",note.acidity],["타닌",note.tannin],["알코올",note.alcohol],["바디",note.body],["피니쉬",note.finish]].filter(([,vv])=>vv).map(([kk,vv]) => (
                   <span key={kk} style={{fontSize:13,background:"#f5f2ee",borderRadius:6,padding:"4px 12px"}}>{kk}: <b style={{color:RED}}>{vv}</b></span>
