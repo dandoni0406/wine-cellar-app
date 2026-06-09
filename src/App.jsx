@@ -1358,23 +1358,9 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Wine Insights / Tips ── */}
+            {insights && (
             <div style={CS}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                <SH style={{marginBottom:0}}>💡 알아두면 좋은 것</SH>
-                {!insights && !loadingInsights && (
-                  <button onClick={doLoadInsights} style={{background:"#FBF4E4",color:GOLD,border:`1px solid ${GOLD}40`,borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                    🤖 AI 팁 불러오기
-                  </button>
-                )}
-                {loadingInsights && (
-                  <div style={{display:"flex",alignItems:"center",gap:6}}>
-                    <span style={{fontSize:12,color:GOLD,fontWeight:600}}>🤖 분석 중...</span>
-                    <span style={{fontSize:10,color:"#ccc"}}>15~30초 소요</span>
-                  </div>
-                )}
-                {insights && <button onClick={doLoadInsights} disabled={loadingInsights} style={{background:"none",border:"none",fontSize:11,color:"#aaa",cursor:"pointer"}}>🔄</button>}
-              </div>
-              {insights ? (
+              <SH>💡 알아두면 좋은 것</SH>
                 <div>
                   {/* Hierarchy table */}
                   {insights.hierarchy?.table?.length > 0 && (
@@ -1462,12 +1448,8 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                   {/* Fun fact */}
                   {insights.funFact && <div style={{fontSize:12,color:"#888",fontStyle:"italic",marginBottom:6}}>💬 {insights.funFact}</div>}
                 </div>
-              ) : (
-                <div style={{fontSize:12,color:"#aaa",textAlign:"center",padding:"8px 0"}}>
-                  AI 팁 버튼을 눌러 생산자 위계, 분류 코드, 감상 포인트, 페어링 등을 확인하세요
-                </div>
-              )}
             </div>
+            )}
 
             {/* ── My Tasting Notes ── */}
             {notes.length > 0 && (
@@ -1504,18 +1486,10 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             <div style={CS}><SH>📷 라벨 사진</SH><LabelPhoto photo={wine.labelPhoto} onUpload={photo=>onUpdate({labelPhoto:photo})}/></div>
 
             {/* ── Recommendations ── */}
+            {reco && reco.items && reco.items.length>0 && (
             <div style={CS}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                <SH style={{marginBottom:0}}>🍷 내 셀러의 비슷한 와인</SH>
-                {!loadingReco&&<button onClick={doLoadReco}
-                  style={{background:reco?"#f5f2ee":"#FDF1F2",color:reco?"#888":RED,border:`1px solid ${reco?"#eee":RED+"40"}`,borderRadius:8,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                  {reco?"🔄 다시 찾기":"🍷 셀러에서 찾기"}
-                </button>}
-                {loadingReco&&<span style={{fontSize:12,color:"#aaa"}}>찾는 중...</span>}
-              </div>
-              {reco && reco.items ? (
-                reco.items.length>0 ? (
-                  <div>
+              <SH>🍷 내 셀러의 비슷한 와인</SH>
+                <div>
                     {reco.items.map((it,i)=>{
                       const w = wines.find(x=>x.id===it.id);
                       if(!w) return null;
@@ -1530,18 +1504,9 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                         </div>
                       );
                     })}
-                  </div>
-                ) : (
-                  <div style={{fontSize:12,color:"#aaa",textAlign:"center",padding:"8px 0"}}>
-                    {reco._few ? "셀러에 비교할 와인이 더 필요해요 (2병 이상 등록하면 추천됩니다)" : "셀러에서 비슷한 와인을 찾지 못했어요"}
-                  </div>
-                )
-              ):(
-                <div style={{fontSize:12,color:"#aaa",textAlign:"center",padding:"8px 0"}}>
-                  내가 보유한 와인 중에서 이 와인과 비슷한 것을 찾아드려요
                 </div>
-              )}
             </div>
+            )}
 
             {/* ── Purchase ── */}
             {wine.type==="cellar"&&(wine.purchaseDate||wine.purchasePrice||wine.location) && (
