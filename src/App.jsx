@@ -202,21 +202,31 @@ async function callGemini(prompt, apiKey, tokens, model){
     responseMimeType:"application/json"   // JSON 모드 강제 → 인사말/마크다운 없이 순수 JSON, 파싱 먹통 방지
   };
   if(!isPro) genConfig.thinkingConfig = {thinkingBudget:0};  // Flash만 thinking 끔 (Pro는 thinking 필수라 끄지 않음)
-  const r = await fetch(url, {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:genConfig })
-  });
-  if(!r.ok){
-    if(r.status===429){ aiNotify("limit"); throw new Error("RATE_LIMIT 429"); }
-    aiNotify("error", r.status); throw new Error(`Gemini HTTP ${r.status}`);
+  const body = JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:genConfig });
+  const sleep = ms => new Promise(res=>setTimeout(res,ms));
+  // 503/500/일시 오류는 자동 재시도(최대 2회), 429 한도는 재시도 안 함
+  let lastStatus = 0;
+  for(let attempt=0; attempt<3; attempt++){
+    if(attempt>0) await sleep(attempt*2000); // 2초, 4초 대기
+    let r;
+    try {
+      r = await fetch(url, { method:"POST", headers:{"Content-Type":"application/json"}, body });
+    } catch(netErr) { lastStatus="network"; continue; } // 네트워크 일시 오류 → 재시도
+    if(r.ok){
+      const data = await r.json();
+      if(data.error){ aiNotify("error"); throw new Error(data.error.message); }
+      const parts = data.candidates?.[0]?.content?.parts || [];
+      const text = (parts.find(p => !p.thought) || parts[0])?.text || "{}";
+      return {content:[{type:"text",text}]};
+    }
+    if(r.status===429){ aiNotify("limit"); throw new Error("RATE_LIMIT 429"); } // 한도는 즉시 중단
+    lastStatus = r.status;
+    if(r.status>=500 || r.status===503) continue; // 서버 일시 오류 → 재시도
+    aiNotify("error", r.status); throw new Error(`Gemini HTTP ${r.status}`); // 그 외 오류는 즉시 중단
   }
-  const data = await r.json();
-  if(data.error){ aiNotify("error"); throw new Error(data.error.message); }
-  // thought 파트(Pro 추론과정)는 건너뛰고 실제 JSON 응답 파트 사용
-  const parts = data.candidates?.[0]?.content?.parts || [];
-  const text = (parts.find(p => !p.thought) || parts[0])?.text || "{}";
-  return {content:[{type:"text",text}]};
+  // 재시도 모두 실패
+  aiNotify("error", lastStatus);
+  throw new Error(`Gemini ${lastStatus} (재시도 실패)`);
 }
 
 // Unified AI caller — routes to Gemini or Claude based on settings
@@ -267,10 +277,21 @@ async function callGeminiVision(prompt, dataUrl, tokens){
   const mime=mm?.[1]||"image/jpeg", b64=mm?.[2]||"";
   if(!b64) throw new Error("이미지 데이터를 읽지 못했습니다");
   const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-  const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:mime,data:b64}}]}],
-      generationConfig:{maxOutputTokens:Math.max(tokens||1500,4000),temperature:0.1,thinkingConfig:{thinkingBudget:0},responseMimeType:"application/json"}})});
-  if(!r.ok) throw new Error(`Gemini HTTP ${r.status}`);
+  const body=JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:mime,data:b64}}]}],
+      generationConfig:{maxOutputTokens:Math.max(tokens||1500,4000),temperature:0.1,thinkingConfig:{thinkingBudget:0},responseMimeType:"application/json"}});
+  const sleep=ms=>new Promise(res=>setTimeout(res,ms));
+  let r, lastStatus=0;
+  for(let attempt=0; attempt<3; attempt++){
+    if(attempt>0) await sleep(attempt*2000);
+    try { r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body}); }
+    catch(netErr){ lastStatus="network"; continue; }
+    if(r.ok) break;
+    if(r.status===429) throw new Error("RATE_LIMIT 429");
+    lastStatus=r.status;
+    if(r.status>=500) continue;
+    throw new Error(`Gemini HTTP ${r.status}`);
+  }
+  if(!r || !r.ok) throw new Error(`Gemini ${lastStatus} (재시도 실패)`);
   const data=await r.json();
   if(data.error) throw new Error(data.error.message);
   const parts=data.candidates?.[0]?.content?.parts||[];
