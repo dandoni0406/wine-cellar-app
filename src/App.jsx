@@ -1258,6 +1258,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
   }
   const [insights, setInsights] = useState(wine.wineInsights||null);
   const [loadingInsights, setLoadingInsights] = useState(false);
+  const [subtab, setSubtab] = useState("info");
 
   async function doLoadInsights(){
     setLoadingInsights(true);
@@ -1411,8 +1412,18 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                 🤖 AI가 상세정보·팁·셀러 추천을 한 번에 조회 중... 잠시만요.
               </div>
             )}
+            {/* ── 내부 탭 ── */}
+            <div style={{display:"flex",gap:4,position:"sticky",top:0,zIndex:5,background:"#F7F4F0",padding:"6px 0",marginBottom:4}}>
+              {[["info","정보"],["detail","상세"],["tips","팁"],["notes","노트"]].map(([k,l])=>(
+                <button key={k} onClick={()=>setSubtab(k)}
+                  style={{flex:1,padding:"8px 2px",fontSize:13,fontWeight:subtab===k?700:500,borderRadius:8,cursor:"pointer",border:"none",background:subtab===k?RED:"#fff",color:subtab===k?"#fff":"#888",boxShadow:subtab===k?"none":"0 1px 2px rgba(0,0,0,.04)"}}>
+                  {l}
+                </button>
+              ))}
+            </div>
+
             {/* ── Expert Ratings ── */}
-            {hasR && (
+            {subtab==="info" && hasR && (
               <div style={CS}>
                 <SH>🏅 전문가 평점</SH>
 
@@ -1436,7 +1447,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Expert Tasting Notes ── */}
-            {wine.expertNotes && wine.expertNotes.filter(n=>!isDisclaimerNote(n.note)).length > 0 && (
+            {subtab==="tips" && wine.expertNotes && wine.expertNotes.filter(n=>!isDisclaimerNote(n.note)).length > 0 && (
               <div style={CS}>
                 <SH>🗣 전문가 시음노트</SH>
                 {wine.expertNotes.filter(n=>!isDisclaimerNote(n.note)).map((en, i) => (
@@ -1455,7 +1466,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Winery Official Note ── */}
-            {wine.officialNote && (
+            {subtab==="tips" && wine.officialNote && (
               <div style={CS}>
                 <SH>🍇 와이너리 공식 시음노트</SH>
                 <div style={{background:"#FBF8F4",borderRadius:10,padding:14,borderLeft:`3px solid ${GOLD}`,fontSize:13,color:"#555",lineHeight:1.8,fontStyle:"italic"}}>"{wine.officialNote}"</div>
@@ -1463,7 +1474,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Terroir ── */}
-            {hasData(wine.terroir) && (
+            {subtab==="detail" && hasData(wine.terroir) && (
               <div style={CS}>
                 <SH>🌿 테루아</SH>
                 <DR label="토양 유형" val={wine.terroir.soilType}/>
@@ -1479,7 +1490,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Producer ── */}
-            {hasData(wine.producerInfo) && (
+            {subtab==="detail" && hasData(wine.producerInfo) && (
               <div style={CS}>
                 <SH>🏡 생산자 — {wine.producer}</SH>
                 <DR label="설립" val={wine.producerInfo.founded}/>
@@ -1492,7 +1503,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Vintage ── */}
-            {hasData(wine.vintageInfo) && (
+            {subtab==="detail" && hasData(wine.vintageInfo) && (
               <div style={CS}>
                 <SH>📅 {wine.vintage} 빈티지</SH>
                 <DR label="기상" val={wine.vintageInfo.weather}/>
@@ -1503,7 +1514,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Winemaking ── */}
-            {hasData(wine.winemaking) && (
+            {subtab==="detail" && hasData(wine.winemaking) && (
               <div style={CS}>
                 <SH>⚗️ 양조</SH>
                 <DR label="발효" val={wine.winemaking.fermentation}/>
@@ -1519,7 +1530,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Map ── */}
-            {wine.vineyardLat&&wine.vineyardLon && (
+            {subtab==="detail" && wine.vineyardLat&&wine.vineyardLon && (
               <div style={CS}>
                 <SH>📍 포도밭 위치</SH>
                 {wine.mapNotes && (<div style={{fontSize:12,color:"#888",marginBottom:8}}>{wine.mapNotes}</div>)}
@@ -1528,7 +1539,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Wine Insights / Tips ── */}
-            {insights && (
+            {subtab==="tips" && insights && (
             <div style={CS}>
               <SH>💡 알아두면 좋은 것</SH>
                 <div>
@@ -1651,7 +1662,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── My Tasting Notes ── */}
-            {notes.length > 0 && (
+            {subtab==="notes" && notes.length > 0 && (
               <div style={CS}>
                 <SH>📝 시음노트 ({notes.length})</SH>
                 {[...new Set(notes.map(n=>n.taster).filter(Boolean))].length > 1 && (
@@ -1689,10 +1700,10 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Label Photo ── */}
-            <div style={CS}><SH>📷 라벨 사진</SH><LabelPhoto photo={wine.labelPhoto} photoId={wine.labelPhotoId} onUpload={id=>onUpdate({labelPhotoId:id,labelPhoto:""})}/></div>
+            {subtab==="info" && (<div style={CS}><SH>📷 라벨 사진</SH><LabelPhoto photo={wine.labelPhoto} photoId={wine.labelPhotoId} onUpload={id=>onUpdate({labelPhotoId:id,labelPhoto:""})}/></div>)}
 
             {/* ── Recommendations ── */}
-            {reco && reco.items && reco.items.length>0 && (
+            {subtab==="notes" && reco && reco.items && reco.items.length>0 && (
             <div style={CS}>
               <SH>🍷 내 셀러의 비슷한 와인</SH>
                 <div>
@@ -1715,7 +1726,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Purchase ── */}
-            {wine.type==="cellar"&&(wine.purchaseDate||wine.purchasePrice||wine.location) && (
+            {subtab==="info" && wine.type==="cellar"&&(wine.purchaseDate||wine.purchasePrice||wine.location) && (
               <div style={CS}>
                 <SH>🛒 구매 정보</SH>
                 <DR label="구매일" val={wine.purchaseDate}/><DR label="구매처" val={wine.shop}/>
