@@ -402,7 +402,8 @@ _reasoning 예시: "생산자는 Domaine Georges Mugneret-Gibourg, 산지는 프
 "producerInfo":{"founded":"","size":"","certifications":"","history":"2-3문장","philosophy":"2-3문장","approach":""},
 "vintageInfo":{"weather":"","harvest":"","characteristics":"2-3문장","agingPotential":""},
 "winemaking":{"fermentation":"","yeast":"","vessel":"","aging":"","agingVessel":"","agingTime":"","malo":"","filtration":"","sulfur":""},
-"expertNotes":[{"critic":"","score":"","note":"한국어 번역","year":""}]
+"expertNotes":[{"critic":"","score":"","note":"한국어 번역","year":""}],
+"officialNote":"와이너리 공식 시음노트(테크니컬 시트/홈페이지 표기)를 한국어로 번역. 공식 자료가 확인되지 않으면 빈 문자열. 절대 지어내지 말 것"
 }`, 6000);
 };
 
@@ -445,8 +446,41 @@ ${known?`<known_facts>\n${known}\n</known_facts>`:""}
 
 const correctWine = (name, v) => aiJson(`와인 "${name}"${v?` 빈티지 ${v}`:""}을 보정해서 JSON만. nameKR/nameEN에 빈티지 포함 금지.
 {"nameKR":"","nameEN":"","vintage":"","producer":"","region":"","country":"","wineType":"Red|White|Rosé|Sparkling|Dessert|Fortified","isBurgundy":false}`, 1500);
-const structNote = (txt, wine) => aiJson(`"${wine}" 시음메모를 JSON으로만. 메모:"${txt}"
-{"color":"","noseIntensity":"약함|중간|강함","noseAromas":"","sweetness":"드라이|오프드라이|미디엄|스위트","acidity":"낮음|중간-|중간|중간+|높음","tannin":"","alcohol":"낮음|중간|높음","body":"라이트|미디엄-|미디엄|미디엄+|풀","flavors":"","finish":"짧음|중간|김","overallImpression":"2-3문장","rating":"숫자만","repurchase":"예|보통|아니오"}`);
+// 자유서술 → WSET 지표 매핑용
+const _aromaNames = T_AROMA.flatMap(([,items])=>items.map(([,n])=>n));
+const _flavorNames = T_FLAVOR.flatMap(([,items])=>items.map(([,n])=>n));
+const _chipByName = (name, groups) => {
+  for(const [,items] of groups){ for(const [emoji,n] of items){ if(n===name) return `${emoji} ${name}`; } }
+  return null;
+};
+const structNote = (txt, wine) => aiJson(`"${wine}" 시음 자유서술을 분석해 WSET 지표로 정리. 메모에 실제 나타난 것만, 없으면 빈 문자열/빈 배열. 마크다운 없이 순수 JSON만.
+서술:"${txt}"
+{"color":"","noseIntensity":"약함|중간-|중간|중간+|강함","sweetness":"완전 드라이|드라이|살짝 단맛|반건조|중간 단맛|스위트|매우 달콤","acidity":"낮음|중간-|중간|중간+|높음","tannin":"거의 없음|부드러움|중간|뻑뻑함|매우 강함","alcohol":"낮음|중간|높음|주정강화","body":"가벼움|다소 가벼움|중간|다소 무거움|풀 바디","finish":"짧음|약간 짧음|중간|약간 김|김","aromas":[],"flavors":[],"overallImpression":"서술을 다듬은 총평 2-3문장","rating":"숫자만(서술에 점수 언급 있을때만)","repurchase":"예|보통|아니오"}
+aromas는 서술에 언급된 향만 아래 목록에서 정확히 골라 배열로: ${_aromaNames.join(", ")}
+flavors는 서술에 언급된 풍미·질감만 아래 목록에서 정확히 골라 배열로: ${_flavorNames.join(", ")}`);
+
+// 내 시음노트 vs 전문가/공식 비교 분석
+const compareNote = (myText, wine) => {
+  const refs = [];
+  (wine?.expertNotes||[]).forEach(n=>{ if(n.note) refs.push(`[${n.critic||"평론가"}${n.score?` ${n.score}`:""}] ${n.note}`); });
+  if(wine?.officialNote) refs.push(`[와이너리 공식] ${wine.officialNote}`);
+  const hasRef = refs.length>0;
+  return aiJson(
+`<role>당신은 WSET 교육자다. 학생의 시음노트를 전문가·와이너리 공식 노트와 비교해 교육적으로 분석한다.</role>
+<task>
+"${cleanName(wine?.nameKR||wine?.nameEN, wine?.vintage)}"에 대한 비교 분석.
+[내 시음노트]
+${myText}
+${hasRef?`[전문가·공식 시음노트]\n${refs.join("\n")}`:`[참고 노트 없음 → ${[wine?.grapeVariety,wine?.region].filter(Boolean).join(" ")||"이 와인"}의 전형적 프로파일을 기준으로 비교]`}
+</task>
+<rules>
+- 내 노트와 기준을 구체적으로 대조한다. 일치점·차이점을 짚되 우열을 가리지 말고 교육적으로.
+- 차이가 나는 이유를 합리적으로 추정한다(디캔팅·서빙온도·빈티지/보관 상태·잔·개인 미각 민감도·표현 어휘 차이 등). 단정 대신 가능성으로 제시.
+- 사실 아닌 내용 지어내기 금지. 기준 노트가 없으면 전형적 프로파일 기준임을 전제로.
+- 마크다운 없이 순수 JSON만.
+</rules>
+{"summary":"내 평가가 전반적으로 얼마나 일치하는지 1-2문장","agreements":["일치한 포인트1","포인트2"],"differences":[{"aspect":"항목(예: 타닌)","mine":"내가 느낀 것","reference":"전문가/전형","why":"차이가 날 수 있는 이유"}],"learningPoint":"이 비교로 배울 점·다음에 주목할 포인트 1-2문장","hasReference":${hasRef}}`);
+};
 
 // ── Critic key extraction ────────────────────────────────────────
 function criticKey(name){
@@ -1353,6 +1387,14 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
               </div>
             )}
 
+            {/* ── Winery Official Note ── */}
+            {wine.officialNote && (
+              <div style={CS}>
+                <SH>🍇 와이너리 공식 시음노트</SH>
+                <div style={{background:"#FBF8F4",borderRadius:10,padding:14,borderLeft:`3px solid ${GOLD}`,fontSize:13,color:"#555",lineHeight:1.8,fontStyle:"italic"}}>"{wine.officialNote}"</div>
+              </div>
+            )}
+
             {/* ── Terroir ── */}
             {hasData(wine.terroir) && (
               <div style={CS}>
@@ -1750,7 +1792,39 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
   const wVin = mode==="cellar" ? (sel?.vintage||"") : (corrected?.vintage||ev);
   const canSave = mode==="cellar" ? !!sel : !!en;
   async function doCorrect() { sc(true); try{scr(await correctWine(en,ev));}catch(e){} sc(false); }
-  async function doStr() { sl(true); try{ssr(await structNote(txt,wName));}catch(e){} sl(false); }
+  async function doStr() {
+    sl(true);
+    try{
+      const s = await structNote(txt, wName);
+      ssr(s);
+      const toChips = (names, groups) => (names||[]).map(n=>_chipByName(n,groups)).filter(Boolean);
+      setWset(p=>({
+        ...p,
+        ...(s.color?{color:s.color}:{}),
+        ...(s.noseIntensity?{noseIntensity:s.noseIntensity}:{}),
+        ...(s.sweetness?{sweetness:s.sweetness}:{}),
+        ...(s.acidity?{acidity:s.acidity}:{}),
+        ...(s.tannin?{tannin:s.tannin}:{}),
+        ...(s.alcohol?{alcohol:s.alcohol}:{}),
+        ...(s.body?{body:s.body}:{}),
+        ...(s.finish?{finish:s.finish}:{}),
+        ...(s.aromas?.length?{_aromas:toChips(s.aromas,T_AROMA)}:{}),
+        ...(s.flavors?.length?{_flavors:toChips(s.flavors,T_FLAVOR)}:{}),
+      }));
+      setShowWset(true);
+    }catch(e){}
+    sl(false);
+  }
+  const [compare, setCompare] = useState(null);
+  const [comparing, setComparing] = useState(false);
+  async function doCompare(){
+    setComparing(true);
+    try{
+      const refWine = mode==="cellar" ? sel : {nameKR:en, nameEN:en, vintage:ev, ...(corrected||{})};
+      setCompare(await compareNote(txt, refWine));
+    }catch(e){}
+    setComparing(false);
+  }
   // 라벨 스캔 (직접입력 모드)
   const scanRef = useRef(null);
   const [scanning2, setScanning2] = useState(false);
@@ -1848,9 +1922,38 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
             placeholder={"느낌을 자유롭게 적어주세요.\n\n예: 진한 루비색, 블랙베리와 삼나무 향, 타닌 실키하고 피니쉬 길다..."}
             style={{...IS,resize:"vertical",lineHeight:1.6}}/>
           <button onClick={doStr} disabled={loading||!txt.trim()||!canSave} style={{marginTop:10,width:"100%",background:"#F5F0FF",color:"#7B4FBF",border:"1px solid #D4B8F0",borderRadius:8,padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer",opacity:(!txt.trim()||!canSave)?0.5:1}}>
-            {loading?"🤖 정리 중...":"🤖 AI로 시음 노트 정리"}
+            {loading?"🤖 정리 중...":"🤖 AI로 시음 노트 정리 (지표 자동 입력)"}
+          </button>
+          <button onClick={doCompare} disabled={comparing||!txt.trim()||!canSave} style={{marginTop:8,width:"100%",background:"#FFF7ED",color:"#C2410C",border:"1px solid #FED7AA",borderRadius:8,padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer",opacity:(!txt.trim()||!canSave)?0.5:1}}>
+            {comparing?"🔍 비교 분석 중...":"🔍 전문가·공식 노트와 비교 분석"}
           </button>
         </div>
+        {compare && (
+          <div style={{...CS,border:"1px solid #FED7AA"}}>
+            <SH>🔍 전문가와 비교 분석</SH>
+            {!compare.hasReference && <div style={{fontSize:11,color:"#C2410C",background:"#FFF7ED",borderRadius:6,padding:"6px 10px",marginBottom:10}}>※ 저장된 전문가/공식 노트가 없어 품종·산지의 전형적 프로파일과 비교했습니다.</div>}
+            {compare.summary && <div style={{fontSize:13,color:"#333",lineHeight:1.7,marginBottom:12}}>{compare.summary}</div>}
+            {compare.agreements?.length>0 && (
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#2E7D32",marginBottom:5}}>✓ 일치한 점</div>
+                {compare.agreements.map((a,i)=>(<div key={i} style={{fontSize:12,color:"#555",lineHeight:1.6,marginBottom:2}}>· {a}</div>))}
+              </div>
+            )}
+            {compare.differences?.length>0 && (
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#C2410C",marginBottom:6}}>⚖ 다르게 느낀 점</div>
+                {compare.differences.filter(d=>d&&(d.aspect||d.why)).map((d,i)=>(
+                  <div key={i} style={{background:"#FFFBF5",borderRadius:8,padding:"9px 11px",marginBottom:6,border:"1px solid #f5e8d8"}}>
+                    {d.aspect && <div style={{fontSize:12,fontWeight:700,color:"#9A3412",marginBottom:3}}>{d.aspect}</div>}
+                    <div style={{fontSize:12,color:"#555",lineHeight:1.6}}><b>나:</b> {d.mine} <br/><b>전문가/전형:</b> {d.reference}</div>
+                    {d.why && <div style={{fontSize:12,color:"#777",lineHeight:1.6,marginTop:4}}>💡 {d.why}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {compare.learningPoint && <div style={{fontSize:12,color:"#666",lineHeight:1.7,fontStyle:"italic",background:"#FFF7ED",borderRadius:8,padding:"10px 12px"}}>📖 {compare.learningPoint}</div>}
+          </div>
+        )}
         {/* Manual score + repurchase */}
         <div style={CS}>
           <SH>평가</SH>
@@ -1890,17 +1993,7 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
         {structured && (
           <div style={{...CS,border:`1px solid ${GOLD}40`}}>
             <SH>✨ AI 정리 결과</SH>
-            {structured.color && (<div style={{marginBottom:10}}><div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:3,textTransform:"uppercase"}}>외관</div><div style={{fontSize:13}}>{structured.color}</div></div>)}
-            {(structured.noseIntensity||structured.noseAromas) && (<div style={{marginBottom:10}}><div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:3,textTransform:"uppercase"}}>후각</div><div style={{fontSize:13}}>강도 {structured.noseIntensity} · {structured.noseAromas}</div></div>)}
-            <div style={{marginBottom:10}}>
-              <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:6,textTransform:"uppercase"}}>미각</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:6}}>
-                {[["당도",structured.sweetness],["산도",structured.acidity],["타닌",structured.tannin],["알코올",structured.alcohol],["바디",structured.body],["피니쉬",structured.finish]].filter(([,vv])=>vv).map(([kk,vv]) => (
-                  <span key={kk} style={{fontSize:12,background:"#f5f2ee",borderRadius:6,padding:"3px 10px"}}>{kk}: {vv}</span>
-                ))}
-              </div>
-              {structured.flavors && (<div style={{fontSize:13}}>{structured.flavors}</div>)}
-            </div>
+            <div style={{fontSize:12,color:"#2E7D32",marginBottom:10}}>✓ 색·향·맛 지표가 위 WSET 피커에 자동 입력되었습니다 (수정 가능)</div>
             {structured.overallImpression && (<div style={{marginBottom:10}}><div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:4,textTransform:"uppercase"}}>총평</div><div style={{fontSize:13,lineHeight:1.7}}>{structured.overallImpression}</div></div>)}
             <div style={{display:"flex",gap:12,alignItems:"center",marginTop:8}}>
               {structured.rating && (<div style={{fontSize:28,fontWeight:700,color:GOLD}}>{structured.rating}<span style={{fontSize:12,color:"#ccc"}}>/100</span></div>)}
