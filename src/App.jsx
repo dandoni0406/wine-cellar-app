@@ -184,6 +184,32 @@ async function loadLocal(){
   return{wines:[],notes:[]};
 }
 async function saveLocal(w,n){try{await window.storage.set(STORAGE_KEY,JSON.stringify({wines:w,notes:n}));}catch(e){}}
+
+// 기존 Base64 라벨사진을 images/{id} 별도 문서로 이전 → cellar/main 용량 축소.
+// 한 번만 수행, 각 이미지 저장 성공 후에만 Base64 제거(유실 방지).
+let _migrating = false;
+async function migrateImages(wines, notes){
+  if(_migrating || !window.storage?.setImage) return null;
+  const targets = (wines||[]).filter(w => typeof w.labelPhoto==="string" && w.labelPhoto.startsWith("data:") && !w.labelPhotoId);
+  if(targets.length===0) return null;
+  _migrating = true;
+  try {
+    let changed = false;
+    const updated = [...wines];
+    for(const w of targets){
+      try {
+        const id = await window.storage.setImage(w.labelPhoto);
+        if(id){
+          _imgCache[id] = w.labelPhoto;
+          const idx = updated.findIndex(x=>x.id===w.id);
+          if(idx>=0){ updated[idx] = {...updated[idx], labelPhotoId:id, labelPhoto:""}; changed=true; }
+        }
+      } catch(e){ /* 이 사진은 다음 번에 재시도 */ }
+    }
+    if(changed){ await saveLocal(updated, notes); return updated; }
+    return null;
+  } finally { _migrating = false; }
+}
 async function callClaude(prompt, tokens, drive){
   // NOTE: Direct Anthropic API calls only work inside the Claude.ai artifact
   // sandbox (which injects auth). In this deployed standalone app there is no
@@ -730,15 +756,54 @@ function DeleteBtn({ onDelete }) {
   }
   return (<button onClick={()=>sc(true)} style={{background:"rgba(255,255,255,.15)",border:"none",borderRadius:6,color:"rgba(255,255,255,.8)",fontSize:12,padding:"5px 12px",cursor:"pointer"}}>삭제</button>);
 }
-function LabelPhoto({ photo, onUpload }) {
+// 사진 표시 — labelPhoto(레거시 Base64) 또는 labelPhotoId(별도 문서)에서 로드. 세션 캐시.
+const _imgCache = {};
+function WineImg({ photo, photoId, style, alt="" }) {
+  const [src, setSrc] = useState(photo || (photoId && _imgCache[photoId]) || "");
+  useEffect(() => {
+    let alive = true;
+    if (photo) { setSrc(photo); return; }
+    if (photoId) {
+      if (_imgCache[photoId]) { setSrc(_imgCache[photoId]); return; }
+      window.storage?.getImage?.(photoId).then(d => { if(d) _imgCache[photoId]=d; if(alive) setSrc(d||""); }).catch(()=>{});
+    } else { setSrc(""); }
+    return () => { alive = false; };
+  }, [photo, photoId]);
+  if (!src) return null;
+  return <img src={src} alt={alt} style={style}/>;
+}
+
+function LabelPhoto({ photo, photoId, onUpload }) {
   const ir = useRef(null);
-  const hf = async e => { const f=e.target.files[0]; if(!f)return; onUpload(await compressImage(f)); };
+  const [preview, setPreview] = useState(photo || (photoId && _imgCache[photoId]) || "");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    if (photo) { setPreview(photo); return; }
+    if (photoId) {
+      if (_imgCache[photoId]) { setPreview(_imgCache[photoId]); return; }
+      window.storage?.getImage?.(photoId).then(d => { if(d) _imgCache[photoId]=d; if(alive) setPreview(d||""); }).catch(()=>{});
+    } else { setPreview(""); }
+    return () => { alive = false; };
+  }, [photo, photoId]);
+  const hf = async e => {
+    const f = e.target.files[0]; if(!f) return;
+    setBusy(true);
+    try {
+      const dataUrl = await compressImage(f);
+      setPreview(dataUrl);
+      const id = await window.storage.setImage(dataUrl);
+      if (id) _imgCache[id] = dataUrl;
+      onUpload(id || "");
+    } catch(err) { console.error(err); alert("사진 업로드 실패. 다시 시도해주세요."); }
+    setBusy(false);
+  };
   return (
     <div>
-      {photo && (<img src={photo} alt="label" style={{width:"100%",maxHeight:300,objectFit:"contain",borderRadius:8,marginBottom:8,display:"block",background:"#f9f7f5"}}/>)}
-      <label style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"9px",background:"#F7F4F0",border:"1px dashed #ddd",borderRadius:8,cursor:"pointer",fontSize:13,color:"#888"}}>
-        📷 {photo?"라벨 사진 변경":"라벨 사진 추가"}
-        <input ref={ir} type="file" accept="image/*" capture="environment" onChange={hf} style={{display:"none"}}/>
+      {preview && (<img src={preview} alt="label" style={{width:"100%",maxHeight:300,objectFit:"contain",borderRadius:8,marginBottom:8,display:"block",background:"#f9f7f5"}}/>)}
+      <label style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"9px",background:"#F7F4F0",border:"1px dashed #ddd",borderRadius:8,cursor:busy?"default":"pointer",fontSize:13,color:"#888"}}>
+        📷 {busy?"업로드 중...":(preview?"라벨 사진 변경":"라벨 사진 추가")}
+        <input ref={ir} type="file" accept="image/*" capture="environment" onChange={hf} disabled={busy} style={{display:"none"}}/>
       </label>
     </div>
   );
@@ -764,7 +829,7 @@ function WCard({ wine, nc, onClick, extra }) {
       style={{background:"#fff",border:`1px solid ${hov?"#c4a0a8":"#ece8e4"}`,borderRadius:12,padding:16,marginBottom:10,cursor:"pointer",transition:"border-color .15s",opacity:isConsumed?.65:1}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div style={{flex:1,minWidth:0,display:"flex",gap:10}}>
-          {wine.labelPhoto && (<img src={wine.labelPhoto} alt="" style={{width:44,height:60,objectFit:"cover",borderRadius:6,flexShrink:0}}/>)}
+          <WineImg photo={wine.labelPhoto} photoId={wine.labelPhotoId} style={{width:44,height:60,objectFit:"cover",borderRadius:6,flexShrink:0}}/>
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,flexWrap:"wrap"}}>
               <span style={{fontSize:17}}>{TICON[wine.wineType]||"🍾"}</span>
@@ -1076,7 +1141,9 @@ function AddWinePage({ type, onAdd, onBack }) {
       const name=res.nameEN||res.producer;
       if(!name){ setScanErr("라벨에서 와인명을 못 읽었어요. 더 선명한 사진으로 다시 찍거나 직접 검색하세요."); setScanning(false); return; }
       sq(name); if(res.vintage) sv(String(res.vintage));
-      await doLookup(name, res.vintage?String(res.vintage):"", {labelPhoto:dataUrl});
+      const imgId = await window.storage.setImage?.(dataUrl);
+      if(imgId) _imgCache[imgId]=dataUrl;
+      await doLookup(name, res.vintage?String(res.vintage):"", {labelPhotoId:imgId||""});
     }catch(err){ setScanErr(String(err.message||err)); }
     setScanning(false);
     if(scanRef.current) scanRef.current.value="";
@@ -1112,7 +1179,7 @@ function AddWinePage({ type, onAdd, onBack }) {
                 ⚠️ AI 조회 오류: {form._lookupError}. 필드를 직접 입력하거나 다시 시도해주세요.
               </div>
             )}
-            <div style={CS}><SH>📷 라벨 사진</SH><LabelPhoto photo={form.labelPhoto} onUpload={photo=>sf(p=>({...p,labelPhoto:photo}))}/></div>
+            <div style={CS}><SH>📷 라벨 사진</SH><LabelPhoto photo={form.labelPhoto} photoId={form.labelPhotoId} onUpload={id=>sf(p=>({...p,labelPhotoId:id,labelPhoto:""}))}/></div>
             <div style={CS}>
               <SH>기본 정보</SH>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -1267,7 +1334,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
         {/* ── Hero ── */}
         <div style={CS}>
           <div style={{display:"flex",gap:12}}>
-            {wine.labelPhoto && (<img src={wine.labelPhoto} alt="" style={{width:80,height:110,objectFit:"contain",borderRadius:8,flexShrink:0,background:"#f9f7f5"}}/>)}
+            <WineImg photo={wine.labelPhoto} photoId={wine.labelPhotoId} style={{width:80,height:110,objectFit:"contain",borderRadius:8,flexShrink:0,background:"#f9f7f5"}}/>
             <div style={{flex:1}}>
               <div style={{fontSize:21,fontWeight:700,fontFamily:"Georgia,serif",marginBottom:4,lineHeight:1.3}}>{dn}</div>
               {wine.nameKR&&wine.nameEN && (<div style={{fontSize:13,color:"#888",marginBottom:4,fontStyle:"italic"}}>{enUS}</div>)}
@@ -1615,7 +1682,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Label Photo ── */}
-            <div style={CS}><SH>📷 라벨 사진</SH><LabelPhoto photo={wine.labelPhoto} onUpload={photo=>onUpdate({labelPhoto:photo})}/></div>
+            <div style={CS}><SH>📷 라벨 사진</SH><LabelPhoto photo={wine.labelPhoto} photoId={wine.labelPhotoId} onUpload={id=>onUpdate({labelPhotoId:id,labelPhoto:""})}/></div>
 
             {/* ── Recommendations ── */}
             {reco && reco.items && reco.items.length>0 && (
@@ -1861,7 +1928,7 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
               </select>
               {sel && (
                 <div style={{marginTop:10,padding:"10px 12px",background:"#f9f7f5",borderRadius:8,display:"flex",gap:10,alignItems:"center"}}>
-                  {sel.labelPhoto && (<img src={sel.labelPhoto} alt="" style={{width:36,height:50,objectFit:"cover",borderRadius:4}}/>)}
+                  <WineImg photo={sel.labelPhoto} photoId={sel.labelPhotoId} style={{width:36,height:50,objectFit:"cover",borderRadius:4}}/>
                   <div>
                     <div style={{fontWeight:600,fontSize:13}}>{cleanName(sel.nameKR,sel.vintage)}</div>
                     <div style={{fontSize:12,color:"#888"}}>{sel.vintage}{sel.region?` · ${sel.region}`:""}</div>
@@ -2571,7 +2638,11 @@ function App() {
   const [tasters, setTasters] = useState(["나","아내"]);
 
   useEffect(() => {
-    loadLocal().then(d => { sw(d.wines); sn(d.notes); sr(true); });
+    loadLocal().then(async d => {
+      sw(d.wines); sn(d.notes); sr(true);
+      const migrated = await migrateImages(d.wines, d.notes); // 기존 Base64 라벨사진 이전
+      if(migrated) sw(migrated);
+    });
     window.storage.subscribe?.((d) => { sw(d.wines); sn(d.notes); }); // 실시간 동기화
     try { window.storage.get("wine-cellar-settings").then(r => {
       if(r){
@@ -2615,10 +2686,14 @@ function App() {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => {
+    reader.onload = async ev => {
       try {
         const d = JSON.parse(ev.target.result);
-        if (d.wines) { sw(d.wines); sn(d.notes||[]); saveLocal(d.wines, d.notes||[]); }
+        if (d.wines) {
+          sw(d.wines); sn(d.notes||[]); await saveLocal(d.wines, d.notes||[]);
+          const migrated = await migrateImages(d.wines, d.notes||[]);
+          if(migrated) sw(migrated);
+        }
       } catch(err) { alert("파일 형식이 올바르지 않습니다."); }
     };
     reader.readAsText(file);
