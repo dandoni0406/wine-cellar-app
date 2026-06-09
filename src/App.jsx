@@ -420,6 +420,7 @@ _reasoning 예시: "생산자는 Domaine Georges Mugneret-Gibourg, 산지는 프
 </example>
 
 아래 스키마에 맞춰 정확히 작성. _reasoning을 가장 먼저 채워 스스로 팩트체크를 정리한 뒤 나머지를 작성하라.
+[지도용 좌표] vineyardLat/vineyardLon은 지도 표시에 쓰인다. 정확한 밭 좌표를 모르면 해당 마을·세부지역·지역의 대략적 좌표라도 반드시 채운다(예: 마을 중심). 국가조차 불명확할 때만 빈칸. vineyardZoom은 밭 단위면 14~15, 마을이면 12, 지역이면 9.
 {
 "_reasoning":"이 와인의 국가·지역·생산자·등급에 대한 팩트체크 사고 과정을 2-3문장으로 먼저 정리",
 "nameKR":"","nameEN":"","producer":"","country":"","region":"","subRegion":"","vineyard":"","classification":"","grapeVariety":"","wineType":"Red","drinkFrom":"숫자","drinkUntil":"숫자","description":"3문장 한국어","isBurgundy":false,"isBordeaux":false,"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"",
@@ -1284,6 +1285,11 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
       const anc = {producer:flat.producer||wine.producer, country:flat.country||wine.country, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety};
       const ins = await deepInsights(name, v, anc);
       const { _reasoning:_ir, ...insights } = ins;
+      // 셀러 비슷한 와인도 같은 호출에서 (갱신된 정보 기준)
+      const mergedW = {...wine, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety, wineType:flat.wineType||wine.wineType, country:flat.country||wine.country};
+      let rec = null;
+      try { rec = await recommendFromCellar(mergedW, wines); } catch(e) {}
+      // 모든 변경을 한 번에 저장 (두 번 나눠 저장하면 두 번째가 첫 번째를 덮어씀)
       onUpdate({
         ...flat,
         nameKR: wine.nameKR||flat.nameKR||"",
@@ -1298,12 +1304,10 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
         winemaking: {...(wine.winemaking||{}), ...(flat.winemaking||{})},
         expertNotes: notes.filter(n=>!isDisclaimerNote(n.note)),
         wineInsights: insights,
+        ...(rec?{recommendations:rec}:{}),
       });
       setInsights(insights);
-      // 셀러 비슷한 와인도 자동 (Flash 1회) — 갱신된 정보 기준
-      const merged = {...wine, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety, wineType:flat.wineType||wine.wineType, country:flat.country||wine.country};
-      const rec = await recommendFromCellar(merged, wines);
-      setReco(rec); onUpdate({recommendations:rec});
+      if(rec) setReco(rec);
     }catch(e){}
     setEnriching(false);
   }
@@ -2791,7 +2795,7 @@ function App() {
   }
 
   function addWine(w) { const u=[...wines,{...w,id:String(Date.now()),createdAt:new Date().toISOString()}]; persist(u,notes); back(); }
-  function editWine(id,ch) { const u=wines.map(w=>w.id===id?{...w,...ch}:w); persist(u,notes); if(ctx.wine?.id===id)sc(c=>({...c,wine:{...c.wine,...ch}})); }
+  function editWine(id,ch) { sw(prev=>{ const u=prev.map(w=>w.id===id?{...w,...ch}:w); saveLocal(u,notes); return u; }); if(ctx.wine?.id===id)sc(c=>({...c,wine:{...c.wine,...ch}})); }
   function deleteWine(id) { persist(wines.filter(w=>w.id!==id),notes.filter(n=>n.wineId!==id)); back(); }
   function addNote(n) {
     const u=[...notes,{...n,id:String(Date.now()),createdAt:new Date().toISOString()}];
