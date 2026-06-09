@@ -300,11 +300,13 @@ JSON 배열만 반환, 다른 텍스트 없이.`,12000,true);
 
 // Basic lookup — simple flat JSON, very reliable
 const lookupWine = (name, v) => aiJson(
-`와인 "${name}"${v?` (${v}빈티지)`:""}의 기본 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만. nameKR/nameEN에 빈티지 포함 금지. 부르고뉴면 isBurgundy=true, 보르도면 isBordeaux=true.
-정확한 사실만 입력. 와인의 실제 생산 국가·지역을 정확히 판단할 것(예: "Beaune/본"은 프랑스 부르고뉴이지 독일이 아님). 확실하지 않은 항목은 추측하지 말고 빈 문자열로 둘 것.
-사용자가 입력한 와인명은 대충 적은 한글이거나 부정확할 수 있음. nameKR은 입력값을 그대로 두지 말고 반드시 정확한 공식 한글 표기로 교정해서 채울 것 (예: "샤또딸보"→"샤토 탈보", "본로마네"→"본 로마네").
+`당신은 WSET Diploma를 보유한 마스터 소믈리에다. 정확성에 자부심이 있어 틀린 정보 대신 빈칸을 남긴다.
+와인 "${name}"${v?` (${v}빈티지)`:""}의 기본 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만. nameKR/nameEN에 빈티지 포함 금지. 부르고뉴면 isBurgundy=true, 보르도면 isBordeaux=true.
+먼저 국가→지역→생산자를 확정한 뒤 나머지를 채울 것. (예: "Beaune/본"은 프랑스 부르고뉴이지 독일 Bonn이 아님)
+추측은 치명적 오류다. 확신 80% 미만 항목은 반드시 빈 문자열로 둘 것.
+사용자 입력 한글명은 부정확할 수 있으니 nameKR은 정확한 공식 한글 표기로 교정 (예: "샤또딸보"→"샤토 탈보", "본로마네"→"본 로마네").
 {"nameKR":"한국어와인명","nameEN":"English name","producer":"생산자","country":"국가","region":"지역","subRegion":"세부지역","vineyard":"포도밭","classification":"등급","grapeVariety":"포도품종","wineType":"Red","drinkFrom":"시작연도숫자","drinkUntil":"종료연도숫자","description":"3문장 한국어 설명","isBurgundy":false,"isBordeaux":false,"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"밭위치설명","expertRatings":{"bh":"","ws":"","wa":"","vinous":"","js":"","jr":"","dec":"","jm":""}}
-중요: expertRatings 각 필드는 실제 점수 숫자(예: 92)가 확인된 경우에만 입력. 없거나 미발표면 반드시 빈 문자열 "" — 절대 설명 텍스트 금지.`, 2000
+중요: expertRatings 각 필드는 실제 점수 숫자(예: 92)가 확인된 경우에만 입력. 없으면 반드시 빈 문자열 "" — 절대 설명 텍스트 금지.`, 2000
 );
 
 // Detailed WSET-level info — called separately from detail page
@@ -345,12 +347,29 @@ const lookupWineInsights = (name, v) => aiJson(
 {"hierarchy":{"description":"이 와인이 생산자 라인업에서 차지하는 위치 설명 (예: VDP.Grosse Lage > VDP.Ortswein > VDP.Gutswein 중 해당 등급)","table":[{"rank":"①","name":"최상위 와인명","category":"VDP/AOC 분류"},{"rank":"②","name":"이 와인","category":"해당 등급","isCurrent":true},{"rank":"③","name":"기본 와인","category":"엔트리 등급"}]},"classificationKey":{"title":"알아야 할 핵심 코드/시스템","items":[{"code":"코드나 용어","meaning":"설명"}]},"essentialContext":"이 와인을 이해하기 위해 반드시 알아야 할 배경 지식 2-3문장. 생산 방식 특이사항, 지역 특성, 위계 체계 등","vintageCharacter":"${v||"해당 빈티지"}년 특성 — 기상 조건, 스타일, 숙성 가능성 2문장","criticalInsight":"이 와인만의 핵심 감상 포인트 또는 구별되는 특징 2문장","peakWindow":"최적 음용 시기 (예: 2028~2038, 지금도 가능)","decanting":"디캔팅 권장 여부 및 시간","servingTemp":"적정 서빙 온도","foodPairing":["최적 페어링 음식1","음식2","음식3"],"rarityNote":"희소성/생산량/시장 접근성","funFact":"알면 흥미로운 사실 1-2문장"}`, 2500
 );
 
-// 통합 채우기 — 기본+상세+인사이트를 한 호출로 (Pro 호출 횟수 대폭 절감)
-const enrichAll = (name, v) => aiJson(
-`와인 "${name}"${v?` (${v}빈티지)`:""}의 정보를 아래 JSON 하나로만 반환. 마크다운 없이 순수 JSON만.
-정확한 사실만. 와인의 실제 국가·지역을 정확히 판단(예: "Beaune/본"은 프랑스 부르고뉴, 독일 아님). 확실치 않으면 빈 문자열, 절대 추측·창작 금지.
-nameKR/nameEN에 빈티지 포함 금지. nameKR은 사용자 입력이 부정확할 수 있으니 정확한 공식 한글 표기로 교정(예: "샤또딸보"→"샤토 탈보").
-expertRatings는 실제 점수 숫자가 확인된 평론가만 채우고 없으면 빈 문자열. expertNotes는 정보 있는 평론가만 포함하고 note는 한국어로 번역. 안내·면책 문구 금지.
+// 통합 채우기 — 기본+상세+인사이트를 한 호출로. anchor=이미 아는 정보(환각 방지)
+const enrichAll = (name, v, anchor) => {
+  const a = anchor||{};
+  const known = [a.producer&&`생산자: ${a.producer}`, a.country&&`국가: ${a.country}`, a.region&&`지역: ${a.region}`, a.grapeVariety&&`품종: ${a.grapeVariety}`, a.wineType&&`종류: ${a.wineType}`].filter(Boolean).join(" / ");
+  return aiJson(
+`당신은 WSET Diploma를 보유한 마스터 소믈리에이자 와인 데이터 전문가다. 정확성에 직업적 자부심이 있으며, 틀린 정보를 적느니 빈칸을 남긴다.
+
+[작업] 와인 "${name}"${v?` (${v}빈티지)`:""}의 정보를 아래 JSON 하나로만 반환. 마크다운/설명 없이 순수 JSON만.
+${known?`[이미 확인된 정보 — 반드시 이것과 모순되지 않게, 이 범위 안에서 작성]\n${known}\n`:""}
+[작업 순서 — 내부적으로 이 순서로 검증한 뒤 채울 것]
+1) 먼저 이 와인의 국가→지역→생산자를 확정한다. (예: "Beaune/본"은 프랑스 부르고뉴이지 독일 Bonn이 아니다. "Chablis"는 부르고뉴 샤르도네다.)
+2) 위에 [이미 확인된 정보]가 있으면 그것을 기준으로 삼는다.
+3) 확정된 국가·지역에 맞는 품종·등급·양조 정보만 채운다.
+
+[환각 차단 — 매우 중요]
+- 추측으로 채운 정보는 치명적 오류로 간주한다. 확신이 80% 미만인 항목은 반드시 빈 문자열 "" 로 둔다.
+- 모르는 평론가 점수/노트를 지어내지 마라. expertRatings는 실제 확인된 숫자만, 나머지는 "". expertNotes는 실제 존재하는 평론가만, note는 자연스러운 한국어로 번역.
+- nameKR은 사용자 입력이 부정확할 수 있으니 정확한 공식 한글 표기로 교정한다. (예: "샤또딸보"→"샤토 탈보", "본로마네"→"본 로마네")
+- nameKR/nameEN에 빈티지 숫자 포함 금지.
+
+[좋은 출력 예시] description: "부르고뉴 본 지역의 프리미에 크뤼 샤르도네로, 미네랄리티와 균형 잡힌 산도가 돋보인다. 오크 숙성으로 은은한 견과류 풍미가 더해진다. 5~10년 숙성 잠재력을 지닌다." (구체적·사실적·간결)
+
+[출력 JSON]
 {
 "nameKR":"","nameEN":"","producer":"","country":"","region":"","subRegion":"","vineyard":"","classification":"","grapeVariety":"","wineType":"Red","drinkFrom":"숫자","drinkUntil":"숫자","description":"3문장 한국어","isBurgundy":false,"isBordeaux":false,"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"",
 "expertRatings":{"bh":"","ws":"","wa":"","vinous":"","js":"","jr":"","dec":"","jm":""},
@@ -361,6 +380,7 @@ expertRatings는 실제 점수 숫자가 확인된 평론가만 채우고 없으
 "expertNotes":[{"critic":"","score":"","note":"한국어 번역","year":""}],
 "insights":{"hierarchy":{"description":"생산자 라인업 내 위치","table":[{"rank":"①","name":"","category":"","isCurrent":false}]},"classificationKey":{"title":"핵심 코드/시스템","items":[{"code":"","meaning":""}]},"essentialContext":"배경지식 2-3문장","vintageCharacter":"빈티지 특성 2문장","criticalInsight":"핵심 감상 포인트 2문장","peakWindow":"최적 음용시기","decanting":"디캔팅 권장","servingTemp":"서빙온도","foodPairing":["음식1","음식2","음식3"],"rarityNote":"희소성","funFact":"흥미로운 사실"}
 }`, 6000);
+};
 
 const correctWine = (name, v) => aiJson(`와인 "${name}"${v?` 빈티지 ${v}`:""}을 보정해서 JSON만. nameKR/nameEN에 빈티지 포함 금지.
 {"nameKR":"","nameEN":"","vintage":"","producer":"","region":"","country":"","wineType":"Red|White|Rosé|Sparkling|Dessert|Fortified","isBurgundy":false}`, 1500);
@@ -1093,7 +1113,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
     try{
       const name=wine.nameKR||wine.nameEN;
       const v=wine.vintage;
-      const r = await enrichAll(name, v);   // 기본+상세+인사이트 = Pro 1회
+      const r = await enrichAll(name, v, {producer:wine.producer, country:wine.country, region:wine.region, grapeVariety:wine.grapeVariety, wineType:wine.wineType});   // 앵커 정보로 환각 차단
       const { insights, ...flat } = r;
       const notes = flat.expertNotes?.length ? flat.expertNotes : (wine.expertNotes||[]);
       const mergedRat = syncRatings(notes, {...(wine.expertRatings||{}), ...(flat.expertRatings||{})});
