@@ -304,20 +304,20 @@ const lookupWine = (name, v) => aiJson(
 정확한 사실만 입력. 와인의 실제 생산 국가·지역을 정확히 판단할 것(예: "Beaune/본"은 프랑스 부르고뉴이지 독일이 아님). 확실하지 않은 항목은 추측하지 말고 빈 문자열로 둘 것.
 사용자가 입력한 와인명은 대충 적은 한글이거나 부정확할 수 있음. nameKR은 입력값을 그대로 두지 말고 반드시 정확한 공식 한글 표기로 교정해서 채울 것 (예: "샤또딸보"→"샤토 탈보", "본로마네"→"본 로마네").
 {"nameKR":"한국어와인명","nameEN":"English name","producer":"생산자","country":"국가","region":"지역","subRegion":"세부지역","vineyard":"포도밭","classification":"등급","grapeVariety":"포도품종","wineType":"Red","drinkFrom":"시작연도숫자","drinkUntil":"종료연도숫자","description":"3문장 한국어 설명","isBurgundy":false,"isBordeaux":false,"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"밭위치설명","expertRatings":{"bh":"","ws":"","wa":"","vinous":"","js":"","jr":"","dec":"","jm":""}}
-중요: expertRatings 각 필드는 실제 점수 숫자(예: 92)가 확인된 경우에만 입력. 없거나 미발표면 반드시 빈 문자열 "" — 절대 설명 텍스트 금지.`, 2000, PRO
+중요: expertRatings 각 필드는 실제 점수 숫자(예: 92)가 확인된 경우에만 입력. 없거나 미발표면 반드시 빈 문자열 "" — 절대 설명 텍스트 금지.`, 2000
 );
 
 // Detailed WSET-level info — called separately from detail page
 const lookupWineDetail = (name, v) => aiJson(
 `와인 "${name}"${v?` (${v})`:""}의 상세 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만.
 {"terroir":{"soilType":"","soilDesc":"","slope":"","aspect":"","altitude":"","vineAge":"","vineyardSize":"","microclimate":"","geology":""},"producerInfo":{"founded":"","size":"","certifications":"","history":"2-3문장","philosophy":"2-3문장","approach":""},"vintageInfo":{"weather":"","harvest":"","characteristics":"2-3문장","agingPotential":""},"winemaking":{"fermentation":"","yeast":"","vessel":"","aging":"","agingVessel":"","agingTime":"","malo":"","filtration":"","sulfur":""},"expertNotes":[{"critic":"","score":"","note":"실제 시음노트를 자연스러운 한국어로 번역해서. 없으면 이 항목 자체를 배열에서 생략","year":""}]}
-중요: expertNotes 배열에 정보가 없는 평론가는 포함하지 말것. note는 반드시 한국어로 번역. 안내 문구, 면책 조항 절대 금지.`, 3000, PRO
+중요: expertNotes 배열에 정보가 없는 평론가는 포함하지 말것. note는 반드시 한국어로 번역. 안내 문구, 면책 조항 절대 금지.`, 3000
 );
 const lookupWineRecommendations = (name, v, region, price) => aiJson(
 `와인 전문가로서 "${name}"${v?` (${v})`:""} (${region||""}${price?`, 가격대 ₩${parseInt(price).toLocaleString()}`:""})과 비슷한 와인을 추천해줘. 마크다운 없이 순수 JSON만 반환.
 {"famous":[{"name":"유명 와인명 (생산자 포함)","region":"지역/국가","priceRange":"가격대 예: ₩15~20만","whySimilar":"추천 이유 1-2문장","producer":"생산자"},{"name":"","region":"","priceRange":"","whySimilar":"","producer":""}],"gems":[{"name":"숨은보석 와인명","region":"지역/국가","priceRange":"가격대","whySimilar":"추천 이유 1-2문장","producer":"생산자"},{"name":"","region":"","priceRange":"","whySimilar":"","producer":""}],"note":"전반적인 추천 코멘트 1문장"}
 famous: 잘 알려진 대안 2-3개 (비슷한 등급·스타일·가격대)
-gems: 덜 알려졌지만 가성비 좋거나 품질 뛰어난 와인 2-3개`, 1500, PRO
+gems: 덜 알려졌지만 가성비 좋거나 품질 뛰어난 와인 2-3개`, 1500
 );
 // 내 셀러 안에서 비슷한 와인 추천 (외부 환각 방지)
 const recommendFromCellar = (wine, cellarWines) => {
@@ -335,18 +335,35 @@ const recommendFromCellar = (wine, cellarWines) => {
 반드시 아래 목록의 id만 사용. 목록에 없는 와인 절대 금지. 비슷한 게 정말 없으면 빈 배열.
 목록 (id | 이름 | 생산자 | 지역,국가 | 품종 | 종류):
 ${list}
-JSON만: {"items":[{"id":"목록의 id 그대로","whySimilar":"왜 비슷한지 한 문장"}]}`, 1500, PRO);
+JSON만: {"items":[{"id":"목록의 id 그대로","whySimilar":"왜 비슷한지 한 문장"}]}`, 1500);
 };
 
 const lookupWineInsights = (name, v) => aiJson(
 `와인 전문가 수준으로 "${name}"${v?` (${v}빈티지)`:""}에 대한 심화 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만.
 반드시 정확한 사실만 작성. 와인의 실제 국가·산지를 정확히 확인할 것. 확실하지 않은 항목은 빈 문자열로 두고 절대 추측하거나 지어내지 말 것.
 
-{"hierarchy":{"description":"이 와인이 생산자 라인업에서 차지하는 위치 설명 (예: VDP.Grosse Lage > VDP.Ortswein > VDP.Gutswein 중 해당 등급)","table":[{"rank":"①","name":"최상위 와인명","category":"VDP/AOC 분류"},{"rank":"②","name":"이 와인","category":"해당 등급","isCurrent":true},{"rank":"③","name":"기본 와인","category":"엔트리 등급"}]},"classificationKey":{"title":"알아야 할 핵심 코드/시스템","items":[{"code":"코드나 용어","meaning":"설명"}]},"essentialContext":"이 와인을 이해하기 위해 반드시 알아야 할 배경 지식 2-3문장. 생산 방식 특이사항, 지역 특성, 위계 체계 등","vintageCharacter":"${v||"해당 빈티지"}년 특성 — 기상 조건, 스타일, 숙성 가능성 2문장","criticalInsight":"이 와인만의 핵심 감상 포인트 또는 구별되는 특징 2문장","peakWindow":"최적 음용 시기 (예: 2028~2038, 지금도 가능)","decanting":"디캔팅 권장 여부 및 시간","servingTemp":"적정 서빙 온도","foodPairing":["최적 페어링 음식1","음식2","음식3"],"rarityNote":"희소성/생산량/시장 접근성","funFact":"알면 흥미로운 사실 1-2문장"}`, 2500, PRO
+{"hierarchy":{"description":"이 와인이 생산자 라인업에서 차지하는 위치 설명 (예: VDP.Grosse Lage > VDP.Ortswein > VDP.Gutswein 중 해당 등급)","table":[{"rank":"①","name":"최상위 와인명","category":"VDP/AOC 분류"},{"rank":"②","name":"이 와인","category":"해당 등급","isCurrent":true},{"rank":"③","name":"기본 와인","category":"엔트리 등급"}]},"classificationKey":{"title":"알아야 할 핵심 코드/시스템","items":[{"code":"코드나 용어","meaning":"설명"}]},"essentialContext":"이 와인을 이해하기 위해 반드시 알아야 할 배경 지식 2-3문장. 생산 방식 특이사항, 지역 특성, 위계 체계 등","vintageCharacter":"${v||"해당 빈티지"}년 특성 — 기상 조건, 스타일, 숙성 가능성 2문장","criticalInsight":"이 와인만의 핵심 감상 포인트 또는 구별되는 특징 2문장","peakWindow":"최적 음용 시기 (예: 2028~2038, 지금도 가능)","decanting":"디캔팅 권장 여부 및 시간","servingTemp":"적정 서빙 온도","foodPairing":["최적 페어링 음식1","음식2","음식3"],"rarityNote":"희소성/생산량/시장 접근성","funFact":"알면 흥미로운 사실 1-2문장"}`, 2500
 );
 
+// 통합 채우기 — 기본+상세+인사이트를 한 호출로 (Pro 호출 횟수 대폭 절감)
+const enrichAll = (name, v) => aiJson(
+`와인 "${name}"${v?` (${v}빈티지)`:""}의 정보를 아래 JSON 하나로만 반환. 마크다운 없이 순수 JSON만.
+정확한 사실만. 와인의 실제 국가·지역을 정확히 판단(예: "Beaune/본"은 프랑스 부르고뉴, 독일 아님). 확실치 않으면 빈 문자열, 절대 추측·창작 금지.
+nameKR/nameEN에 빈티지 포함 금지. nameKR은 사용자 입력이 부정확할 수 있으니 정확한 공식 한글 표기로 교정(예: "샤또딸보"→"샤토 탈보").
+expertRatings는 실제 점수 숫자가 확인된 평론가만 채우고 없으면 빈 문자열. expertNotes는 정보 있는 평론가만 포함하고 note는 한국어로 번역. 안내·면책 문구 금지.
+{
+"nameKR":"","nameEN":"","producer":"","country":"","region":"","subRegion":"","vineyard":"","classification":"","grapeVariety":"","wineType":"Red","drinkFrom":"숫자","drinkUntil":"숫자","description":"3문장 한국어","isBurgundy":false,"isBordeaux":false,"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"",
+"expertRatings":{"bh":"","ws":"","wa":"","vinous":"","js":"","jr":"","dec":"","jm":""},
+"terroir":{"soilType":"","soilDesc":"","slope":"","aspect":"","altitude":"","vineAge":"","vineyardSize":"","microclimate":"","geology":""},
+"producerInfo":{"founded":"","size":"","certifications":"","history":"2-3문장","philosophy":"2-3문장","approach":""},
+"vintageInfo":{"weather":"","harvest":"","characteristics":"2-3문장","agingPotential":""},
+"winemaking":{"fermentation":"","yeast":"","vessel":"","aging":"","agingVessel":"","agingTime":"","malo":"","filtration":"","sulfur":""},
+"expertNotes":[{"critic":"","score":"","note":"한국어 번역","year":""}],
+"insights":{"hierarchy":{"description":"생산자 라인업 내 위치","table":[{"rank":"①","name":"","category":"","isCurrent":false}]},"classificationKey":{"title":"핵심 코드/시스템","items":[{"code":"","meaning":""}]},"essentialContext":"배경지식 2-3문장","vintageCharacter":"빈티지 특성 2문장","criticalInsight":"핵심 감상 포인트 2문장","peakWindow":"최적 음용시기","decanting":"디캔팅 권장","servingTemp":"서빙온도","foodPairing":["음식1","음식2","음식3"],"rarityNote":"희소성","funFact":"흥미로운 사실"}
+}`, 6000);
+
 const correctWine = (name, v) => aiJson(`와인 "${name}"${v?` 빈티지 ${v}`:""}을 보정해서 JSON만. nameKR/nameEN에 빈티지 포함 금지.
-{"nameKR":"","nameEN":"","vintage":"","producer":"","region":"","country":"","wineType":"Red|White|Rosé|Sparkling|Dessert|Fortified","isBurgundy":false}`, 1500, PRO);
+{"nameKR":"","nameEN":"","vintage":"","producer":"","region":"","country":"","wineType":"Red|White|Rosé|Sparkling|Dessert|Fortified","isBurgundy":false}`, 1500);
 const structNote = (txt, wine) => aiJson(`"${wine}" 시음메모를 JSON으로만. 메모:"${txt}"
 {"color":"","noseIntensity":"약함|중간|강함","noseAromas":"","sweetness":"드라이|오프드라이|미디엄|스위트","acidity":"낮음|중간-|중간|중간+|높음","tannin":"","alcohol":"낮음|중간|높음","body":"라이트|미디엄-|미디엄|미디엄+|풀","flavors":"","finish":"짧음|중간|김","overallImpression":"2-3문장","rating":"숫자만","repurchase":"예|보통|아니오"}`);
 
@@ -1076,27 +1093,30 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
     try{
       const name=wine.nameKR||wine.nameEN;
       const v=wine.vintage;
-      const [basic, detail] = await Promise.all([
-        lookupWine(name, v),
-        lookupWineDetail(name, v),
-      ]);
-      const notes = detail.expertNotes?.length ? detail.expertNotes : (wine.expertNotes||[]);
-      // Sync ratings: expertNotes scores → expertRatings (fill empty only)
-      const mergedRat = syncRatings(notes, {...(wine.expertRatings||{}), ...(basic.expertRatings||{})});
+      const r = await enrichAll(name, v);   // 기본+상세+인사이트 = Pro 1회
+      const { insights, ...flat } = r;
+      const notes = flat.expertNotes?.length ? flat.expertNotes : (wine.expertNotes||[]);
+      const mergedRat = syncRatings(notes, {...(wine.expertRatings||{}), ...(flat.expertRatings||{})});
       onUpdate({
-        ...basic,
-        nameKR: wine.nameKR||basic.nameKR||"",
-        nameEN: wine.nameEN||basic.nameEN||"",
-        vintage: wine.vintage||basic.vintage||"",
-        country: normCountry(basic.country||wine.country||""),
-        producer: wine.producer||basic.producer||"",
+        ...flat,
+        nameKR: wine.nameKR||flat.nameKR||"",
+        nameEN: wine.nameEN||flat.nameEN||"",
+        vintage: wine.vintage||flat.vintage||"",
+        country: normCountry(flat.country||wine.country||""),
+        producer: wine.producer||flat.producer||"",
         expertRatings: mergedRat,
-        terroir: {...(wine.terroir||{}), ...(detail.terroir||{})},
-        producerInfo: {...(wine.producerInfo||{}), ...(detail.producerInfo||{})},
-        vintageInfo: {...(wine.vintageInfo||{}), ...(detail.vintageInfo||{})},
-        winemaking: {...(wine.winemaking||{}), ...(detail.winemaking||{})},
+        terroir: {...(wine.terroir||{}), ...(flat.terroir||{})},
+        producerInfo: {...(wine.producerInfo||{}), ...(flat.producerInfo||{})},
+        vintageInfo: {...(wine.vintageInfo||{}), ...(flat.vintageInfo||{})},
+        winemaking: {...(wine.winemaking||{}), ...(flat.winemaking||{})},
         expertNotes: notes.filter(n=>!isDisclaimerNote(n.note)),
+        wineInsights: insights || wine.wineInsights || null,
       });
+      if(insights) setInsights(insights);
+      // 셀러 비슷한 와인도 자동 (Flash 1회) — 갱신된 정보 기준
+      const merged = {...wine, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety, wineType:flat.wineType||wine.wineType, country:flat.country||wine.country};
+      const rec = await recommendFromCellar(merged, wines);
+      setReco(rec); onUpdate({recommendations:rec});
     }catch(e){}
     setEnriching(false);
   }
@@ -1181,14 +1201,14 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
                   <div style={{flex:1,minWidth:0}}>
                     {hasData(wine.terroir)||hasData(wine.producerInfo)
-                      ? <div style={{fontSize:12,color:"#2E7D32",fontWeight:600}}>✅ AI 상세 정보 입력됨</div>
+                      ? <div style={{fontSize:12,color:"#2E7D32",fontWeight:600}}>✅ AI 정보 입력됨 (상세+팁+추천)</div>
                       : <><div style={{fontSize:12,fontWeight:600,color:"#666"}}>📖 상세 정보 없음</div>
-                          <div style={{fontSize:11,color:"#bbb",marginTop:1}}>테루아·생산자·빈티지·양조를 AI가 채워드릴게요</div></>
+                          <div style={{fontSize:11,color:"#bbb",marginTop:1}}>상세정보·팁·셀러 추천을 한 번에 채워드려요</div></>
                     }
                   </div>
                   <div style={{display:"flex",gap:6,flexShrink:0}}>
                     <button onClick={doEnrich} style={{background:RED,color:"#fff",border:"none",borderRadius:8,padding:"7px 12px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
-                      🤖 {hasData(wine.terroir)||hasData(wine.producerInfo)?"재조회":"AI 채우기"}
+                      🤖 {hasData(wine.terroir)||hasData(wine.producerInfo)?"재조회":"AI 한번에 채우기"}
                     </button>
                     {(hasData(wine.terroir)||hasData(wine.producerInfo)||wine.wineInsights)&&(
                       <button onClick={()=>{if(window.confirm("AI가 채운 정보를 모두 초기화할까요?"))onUpdate({terroir:{},producerInfo:{},vintageInfo:{},winemaking:{},expertNotes:[],wineInsights:null})}}
@@ -1202,7 +1222,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
             {enriching&&(
               <div style={{...CS,textAlign:"center",color:GOLD,fontSize:13}}>
-                🤖 AI가 와인 정보를 조회하는 중... 잠시만 기다려주세요.
+                🤖 AI가 상세정보·팁·셀러 추천을 한 번에 조회 중... 잠시만요.
               </div>
             )}
             {/* ── Expert Ratings ── */}
