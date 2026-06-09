@@ -1549,8 +1549,8 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                           {insights.hierarchy.table.map((row,i)=>(
                             <tr key={i} style={{background:row.isCurrent?"#FBF4E4":"transparent",borderBottom:"1px solid #f0ece8"}}>
                               <td style={{padding:"6px 8px",color:row.isCurrent?GOLD:"#888",fontWeight:row.isCurrent?700:400}}>{row.rank}</td>
-                              <td style={{padding:"6px 8px",fontWeight:row.isCurrent?700:400,color:row.isCurrent?RED:"#333"}}>{row.name}{row.isCurrent?" ◀ 이 와인":""}</td>
-                              <td style={{padding:"6px 8px",fontSize:11,color:"#888"}}>{row.category}</td>
+                              <td style={{padding:"6px 8px",fontWeight:row.isCurrent?700:400,color:row.isCurrent?RED:"#333",wordBreak:"break-word"}}>{row.name}{row.isCurrent?" ◀ 이 와인":""}</td>
+                              <td style={{padding:"6px 8px",fontSize:11,color:"#888",wordBreak:"break-word"}}>{row.category}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1562,9 +1562,9 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                     <div style={{marginBottom:12,background:"#F5F0E8",borderRadius:8,padding:"10px 12px"}}>
                       <div style={{fontSize:11,fontWeight:700,color:GOLD,marginBottom:8}}>🔑 {insights.classificationKey.title||"알아야 할 핵심 코드"}</div>
                       {insights.classificationKey.items.map((item,i)=>(
-                        <div key={i} style={{display:"flex",gap:8,marginBottom:i<insights.classificationKey.items.length-1?6:0}}>
-                          <span style={{fontSize:12,fontWeight:700,color:RED,flexShrink:0,minWidth:80}}>{item.code}</span>
-                          <span style={{fontSize:12,color:"#555",lineHeight:1.5}}>{item.meaning}</span>
+                        <div key={i} style={{marginBottom:i<insights.classificationKey.items.length-1?8:0}}>
+                          <div style={{fontSize:12,fontWeight:700,color:RED,marginBottom:2,wordBreak:"break-word"}}>{item.code}</div>
+                          <div style={{fontSize:12,color:"#555",lineHeight:1.6}}>{item.meaning}</div>
                         </div>
                       ))}
                     </div>
