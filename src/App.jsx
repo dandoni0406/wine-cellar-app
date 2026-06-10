@@ -1089,10 +1089,11 @@ function TastingTab({ notes, wines, onNav }) {
           <div key={note.id} onClick={()=>onNav("note",{note})} style={{...CS,cursor:"pointer"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
               <div style={{flex:1}}>
-                <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:5}}>
+                <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:5,flexWrap:"wrap"}}>
                   <span>{TICON[w?.wineType]||"🍾"}</span>
                   <span style={{fontWeight:600,fontSize:14}}>{cleanName(note.wineName,note.vintage)}</span>
                   {note.vintage && (<span style={{color:GOLD,fontWeight:600,fontSize:13}}>{note.vintage}</span>)}
+                  {note.taster && (<span style={{fontSize:10,fontWeight:700,borderRadius:10,padding:"1px 7px",background:note.taster==="아내"?"#E8F5E9":"#FDF1F2",color:note.taster==="아내"?"#2E7D32":RED}}>{note.taster}</span>)}
                 </div>
                 <div style={{fontSize:12,color:"#888",marginBottom:note.overallImpression?4:0}}>{note.date}{note.location?` · ${note.location}`:""}</div>
                 {note.overallImpression && (<div style={{fontSize:12,color:"#666",lineHeight:1.5}}>{note.overallImpression.slice(0,90)}…</div>)}
@@ -1914,24 +1915,32 @@ function wsetToFields(w){
   };
 }
 
-function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] }) {
-  const [mode, sm] = useState("cellar");
-  const [sel, ss] = useState(wine);
-  const [wset, setWset] = useState({});
-  const [showWset, setShowWset] = useState(false);
-  const [en, sn] = useState(""), [ev, sev] = useState(""), [correcting, sc] = useState(false), [corrected, scr] = useState(null);
-  const [txt, st] = useState(""), [structured, ssr] = useState(null), [loading, sl] = useState(false);
-  const [myScore, setMyScore] = useState("");
-  const [myRepurchase, setMyRepurchase] = useState("");
-  const [taster, setTaster] = useState(tasters[0]||"나");
-  const [meta, sm2] = useState({date:new Date().toISOString().split("T")[0],location:"",withWhom:"",foodPairing:"",decanting:""});
+function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"], editNote=null }) {
+  const E = editNote||{};
+  const [mode, sm] = useState(editNote ? (E.wineId?"cellar":"external") : "cellar");
+  const [sel, ss] = useState(editNote ? (E.wineId?wines.find(w=>w.id===E.wineId):null) : wine);
+  const [wset, setWset] = useState(E._wset||{});
+  const [showWset, setShowWset] = useState(!!E._wset);
+  const [en, sn] = useState(E.wineId?"":(E.wineName||"")), [ev, sev] = useState(E.vintage||""), [correcting, sc] = useState(false), [corrected, scr] = useState(null);
+  const [txt, st] = useState(E.freeText||""), [structured, ssr] = useState(null), [loading, sl] = useState(false);
+  const [myScore, setMyScore] = useState(E.rating||"");
+  const [myRepurchase, setMyRepurchase] = useState(E.repurchase||"");
+  const [taster, setTaster] = useState(E.taster||tasters[0]||"나");
+  const [selQuery, setSelQuery] = useState("");      // 와인 검색어
+  const [strDone, setStrDone] = useState(false);     // AI 정리 완료 표시
+  const [cmpDone, setCmpDone] = useState(false);     // 비교 완료 표시
+  const [showCompare, setShowCompare] = useState(false); // 비교 섹션 펼침
+  const [notePhotoId, setNotePhotoId] = useState(E.notePhotoId||""); // 시음 순간 사진
+  const [sessionSaved, setSessionSaved] = useState(false); // 이 시음에서 이미 1병 차감했는지
+  const [justSaved, setJustSaved] = useState("");           // 방금 저장된 작성자(확인 메시지)
+  const [meta, sm2] = useState({date:E.date||new Date().toISOString().split("T")[0],location:E.location||"",withWhom:E.withWhom||"",foodPairing:E.foodPairing||"",decanting:E.decanting||""});
   const um = k => e => sm2(p=>({...p,[k]:e.target.value}));
   const wName = mode==="cellar" ? (sel?.nameKR||sel?.nameEN||"") : ((corrected?.nameKR||corrected?.nameEN)||en);
   const wVin = mode==="cellar" ? (sel?.vintage||"") : (corrected?.vintage||ev);
   const canSave = mode==="cellar" ? !!sel : !!en;
   async function doCorrect() { sc(true); try{scr(await correctWine(en,ev));}catch(e){} sc(false); }
   async function doStr() {
-    sl(true);
+    sl(true); setStrDone(false);
     try{
       const s = await structNote(txt, wName);
       ssr(s);
@@ -1949,22 +1958,55 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
         ...(s.aromas?.length?{_aromas:toChips(s.aromas,T_AROMA)}:{}),
         ...(s.flavors?.length?{_flavors:toChips(s.flavors,T_FLAVOR)}:{}),
       }));
-      setShowWset(true);
+      setShowWset(true); setStrDone(true);
     }catch(e){}
     sl(false);
   }
   const [compare, setCompare] = useState(null);
   const [comparing, setComparing] = useState(false);
   async function doCompare(){
-    setComparing(true);
+    setComparing(true); setCmpDone(false); setShowCompare(true);
     try{
       const refWine = mode==="cellar" ? sel : {nameKR:en, nameEN:en, vintage:ev, ...(corrected||{})};
-      setCompare(await compareNote(txt, refWine));
+      setCompare(await compareNote(txt, refWine)); setCmpDone(true);
     }catch(e){}
     setComparing(false);
   }
   // 라벨 스캔 (직접입력 모드)
   const scanRef = useRef(null);
+  function buildNote(){
+    return {
+      ...(editNote?{id:editNote.id, createdAt:editNote.createdAt}:{}),
+      wineId:mode==="cellar"?sel?.id:null,
+      wineName:cleanName(wName,wVin),
+      vintage:wVin,
+      taster: taster||tasters[0]||"나",
+      ...meta,
+      freeText:txt,
+      ...(notePhotoId?{notePhotoId}:{}),
+      ...(structured||{}),
+      ...wsetToFields(wset),
+      _wset: wset,
+      ...(myScore?{rating:myScore}:{}),
+      ...(myRepurchase?{repurchase:myRepurchase}:{}),
+    };
+  }
+  function doSave(){ if(!canSave)return; onSave(buildNote(), {skipQty:sessionSaved}); }
+  // 저장하고 다른 작성자 노트 이어쓰기 (시음정보·와인 유지, 메모·지표·평가만 초기화)
+  function doSaveContinue(){
+    if(!canSave)return;
+    const cur = taster||tasters[0]||"나";
+    onSave(buildNote(), {stay:true, skipQty:sessionSaved}); // 첫 저장만 수량 차감
+    setSessionSaved(true);
+    setJustSaved(cur);
+    // 다음 작성자로 전환
+    const others = tasters.filter(Boolean).filter(t=>t!==cur);
+    if(others.length) setTaster(others[0]);
+    // 입력 초기화 (와인·시음정보·사진은 유지)
+    st(""); ssr(null); setWset({}); setShowWset(false); setStrDone(false);
+    setMyScore(""); setMyRepurchase(""); setCompare(null); setCmpDone(false); setShowCompare(false);
+    if(typeof window!=="undefined") window.scrollTo({top:0,behavior:"smooth"});
+  }
   const [scanning2, setScanning2] = useState(false);
   const [scanErr2, setScanErr2] = useState("");
   async function onScanTaste(e){
@@ -1982,7 +2024,7 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
   }
   return (
     <div style={{minHeight:"100vh",background:"#F7F4F0",fontFamily:"system-ui,sans-serif"}}>
-      <TopBar title="📝 시음노트 작성" onBack={onBack}/>
+      <TopBar title={editNote?"📝 시음노트 수정":"📝 시음노트 작성"} onBack={onBack}/>
       <Pg>
         <div style={CS}>
           <SH>와인 선택</SH>
@@ -1993,16 +2035,38 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
           </div>
           {mode==="cellar" ? (
             <div>
-              <select value={sel?.id||""} onChange={e=>ss(wines.find(w=>w.id===e.target.value))} style={IS}>
-                <option value="">와인 선택</option>
-                {wines.map(w => (<option key={w.id} value={w.id}>{cleanName(w.nameKR||w.nameEN,w.vintage)} {w.vintage}</option>))}
-              </select>
-              {sel && (
-                <div style={{marginTop:10,padding:"10px 12px",background:"#f9f7f5",borderRadius:8,display:"flex",gap:10,alignItems:"center"}}>
+              {sel ? (
+                <div style={{padding:"10px 12px",background:"#f9f7f5",borderRadius:8,display:"flex",gap:10,alignItems:"center"}}>
                   <WineImg photo={sel.labelPhoto} photoId={sel.labelPhotoId} style={{width:36,height:50,objectFit:"cover",borderRadius:4}}/>
-                  <div>
-                    <div style={{fontWeight:600,fontSize:13}}>{cleanName(sel.nameKR,sel.vintage)}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:13}}>{cleanName(sel.nameKR||sel.nameEN,sel.vintage)}</div>
                     <div style={{fontSize:12,color:"#888"}}>{sel.vintage}{sel.region?` · ${sel.region}`:""}</div>
+                  </div>
+                  <button onClick={()=>{ss(null);setSelQuery("");}} style={{background:"none",border:"1px solid #ddd",borderRadius:6,padding:"5px 10px",fontSize:12,color:"#888",cursor:"pointer"}}>변경</button>
+                </div>
+              ) : (
+                <div>
+                  <input value={selQuery} onChange={e=>setSelQuery(e.target.value)} placeholder="🔍 와인 이름·생산자·지역 검색"
+                    style={{...IS,marginBottom:8}}/>
+                  <div style={{maxHeight:260,overflowY:"auto",border:"1px solid #f0ece6",borderRadius:8}}>
+                    {(()=>{
+                      const q=selQuery.trim().toLowerCase();
+                      const list=wines.filter(w=>{
+                        if(!q) return true;
+                        return [w.nameKR,w.nameEN,w.producer,w.region,w.country].filter(Boolean).join(" ").toLowerCase().includes(q);
+                      }).slice(0,50);
+                      if(list.length===0) return <div style={{padding:"16px",textAlign:"center",fontSize:12,color:"#aaa"}}>검색 결과가 없습니다</div>;
+                      return list.map(w=>(
+                        <div key={w.id} onClick={()=>{ss(w);setSelQuery("");}}
+                          style={{display:"flex",gap:10,alignItems:"center",padding:"9px 12px",borderBottom:"1px solid #f5f2ee",cursor:"pointer"}}>
+                          <WineImg photo={w.labelPhoto} photoId={w.labelPhotoId} style={{width:28,height:38,objectFit:"cover",borderRadius:3,flexShrink:0}}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:13,fontWeight:600,color:"#333"}}>{cleanName(w.nameKR||w.nameEN,w.vintage)}{w.vintage?` ${w.vintage}`:""}</div>
+                            <div style={{fontSize:11,color:"#999"}}>{[w.producer,w.region].filter(Boolean).join(" · ")}</div>
+                          </div>
+                        </div>
+                      ));
+                    })()}
                   </div>
                 </div>
               )}
@@ -2039,6 +2103,10 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
             <FF label="페어링 음식" value={meta.foodPairing} onChange={um("foodPairing")}/>
           </div>
           <FF label="디캔팅" value={meta.decanting} onChange={um("decanting")} placeholder="예: 1시간, 없음"/>
+          <div style={{marginTop:6}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#888",letterSpacing:.5,marginBottom:6,textTransform:"uppercase"}}>📷 시음 사진 (잔·음식 등, 선택)</div>
+            <LabelPhoto photoId={notePhotoId} onUpload={id=>setNotePhotoId(id)}/>
+          </div>
         </div>
         {/* Taster selector */}
         {tasters.length > 1 && (
@@ -2054,45 +2122,47 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
             </div>
           </div>
         )}
+        {/* 1. 시음 메모 → AI 정리 */}
         <div style={CS}>
           <SH>시음 메모 (자유 작성)</SH>
-          <textarea value={txt} onChange={e=>st(e.target.value)} rows={6}
+          <textarea value={txt} onChange={e=>{st(e.target.value);setStrDone(false);}} rows={6}
             placeholder={"느낌을 자유롭게 적어주세요.\n\n예: 진한 루비색, 블랙베리와 삼나무 향, 타닌 실키하고 피니쉬 길다..."}
             style={{...IS,resize:"vertical",lineHeight:1.6}}/>
-          <button onClick={doStr} disabled={loading||!txt.trim()||!canSave} style={{marginTop:10,width:"100%",background:"#F5F0FF",color:"#7B4FBF",border:"1px solid #D4B8F0",borderRadius:8,padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer",opacity:(!txt.trim()||!canSave)?0.5:1}}>
-            {loading?"🤖 정리 중...":"🤖 AI로 시음 노트 정리 (지표 자동 입력)"}
+          <button onClick={doStr} disabled={loading||!txt.trim()||!canSave} style={{marginTop:10,width:"100%",background:strDone?"#F0FDF4":"#F5F0FF",color:strDone?"#2E7D32":"#7B4FBF",border:`1px solid ${strDone?"#BBF7D0":"#D4B8F0"}`,borderRadius:8,padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer",opacity:(!txt.trim()||!canSave)?0.5:1}}>
+            {loading?"🤖 정리 중...":strDone?"✓ 정리 완료 — 다시 정리하려면 탭":"🤖 AI로 시음 노트 정리 (지표 자동 입력)"}
           </button>
-          <button onClick={doCompare} disabled={comparing||!txt.trim()||!canSave} style={{marginTop:8,width:"100%",background:"#FFF7ED",color:"#C2410C",border:"1px solid #FED7AA",borderRadius:8,padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer",opacity:(!txt.trim()||!canSave)?0.5:1}}>
-            {comparing?"🔍 비교 분석 중...":"🔍 전문가·공식 노트와 비교 분석"}
-          </button>
+          {!canSave && <div style={{fontSize:11,color:"#aaa",marginTop:6,textAlign:"center"}}>먼저 위에서 와인을 선택/입력하세요</div>}
         </div>
-        {compare && (
-          <div style={{...CS,border:"1px solid #FED7AA"}}>
-            <SH>🔍 전문가와 비교 분석</SH>
-            {!compare.hasReference && <div style={{fontSize:11,color:"#C2410C",background:"#FFF7ED",borderRadius:6,padding:"6px 10px",marginBottom:10}}>※ 저장된 전문가/공식 노트가 없어 품종·산지의 전형적 프로파일과 비교했습니다.</div>}
-            {compare.summary && <div style={{fontSize:13,color:"#333",lineHeight:1.7,marginBottom:12}}>{compare.summary}</div>}
-            {compare.agreements?.length>0 && (
-              <div style={{marginBottom:12}}>
-                <div style={{fontSize:11,fontWeight:700,color:"#2E7D32",marginBottom:5}}>✓ 일치한 점</div>
-                {compare.agreements.map((a,i)=>(<div key={i} style={{fontSize:12,color:"#555",lineHeight:1.6,marginBottom:2}}>· {a}</div>))}
-              </div>
-            )}
-            {compare.differences?.length>0 && (
-              <div style={{marginBottom:12}}>
-                <div style={{fontSize:11,fontWeight:700,color:"#C2410C",marginBottom:6}}>⚖ 다르게 느낀 점</div>
-                {compare.differences.filter(d=>d&&(d.aspect||d.why)).map((d,i)=>(
-                  <div key={i} style={{background:"#FFFBF5",borderRadius:8,padding:"9px 11px",marginBottom:6,border:"1px solid #f5e8d8"}}>
-                    {d.aspect && <div style={{fontSize:12,fontWeight:700,color:"#9A3412",marginBottom:3}}>{d.aspect}</div>}
-                    <div style={{fontSize:12,color:"#555",lineHeight:1.6}}><b>나:</b> {d.mine} <br/><b>전문가/전형:</b> {d.reference}</div>
-                    {d.why && <div style={{fontSize:12,color:"#777",lineHeight:1.6,marginTop:4}}>💡 {d.why}</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-            {compare.learningPoint && <div style={{fontSize:12,color:"#666",lineHeight:1.7,fontStyle:"italic",background:"#FFF7ED",borderRadius:8,padding:"10px 12px"}}>📖 {compare.learningPoint}</div>}
+
+        {/* 2. AI 정리 결과 (메모 바로 아래) */}
+        {structured && (
+          <div style={{...CS,border:`1px solid ${GOLD}40`}}>
+            <SH>✨ AI 정리 결과</SH>
+            <div style={{fontSize:12,color:"#2E7D32",marginBottom:10}}>✓ 색·향·맛 지표가 아래 WSET에 자동 입력되었습니다 (수정 가능)</div>
+            {structured.overallImpression && (<div style={{marginBottom:10}}><div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:4,textTransform:"uppercase"}}>총평</div><div style={{fontSize:13,lineHeight:1.7}}>{structured.overallImpression}</div></div>)}
+            <div style={{display:"flex",gap:12,alignItems:"center",marginTop:8}}>
+              {structured.rating && (<div style={{fontSize:28,fontWeight:700,color:GOLD}}>{structured.rating}<span style={{fontSize:12,color:"#ccc"}}>/100</span></div>)}
+              {structured.repurchase && (<span style={{fontSize:12,padding:"4px 12px",borderRadius:20,background:"#D1FAE5",color:"#065F46"}}>재구매: {structured.repurchase}</span>)}
+            </div>
           </div>
         )}
-        {/* Manual score + repurchase */}
+
+        {/* 3. 시음 지표 WSET */}
+        <div style={CS}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setShowWset(s=>!s)}>
+            <SH style={{marginBottom:0}}>🎯 시음 지표 (WSET)</SH>
+            <span style={{fontSize:18,color:GOLD}}>{showWset?"−":"+"}</span>
+          </div>
+          {showWset ? (
+            <div style={{marginTop:14}}>
+              <WSETPicker wset={wset} setWset={setWset} wineType={mode==="cellar"?(sel?.wineType):(corrected?.wineType)}/>
+            </div>
+          ) : (
+            <div style={{fontSize:12,color:"#aaa",marginTop:6}}>색·향·당도·산도·타닌·바디 등을 아이콘으로 기록 (선택)</div>
+          )}
+        </div>
+
+        {/* 4. 평가 */}
         <div style={CS}>
           <SH>평가</SH>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
@@ -2114,48 +2184,61 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"] 
             </div>
           </div>
         </div>
+
+        {/* 5. 전문가 비교 (보조 기능, 접이식) */}
         <div style={CS}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setShowWset(s=>!s)}>
-            <SH style={{marginBottom:0}}>🎯 시음 지표 (WSET)</SH>
-            <span style={{fontSize:18,color:GOLD}}>{showWset?"−":"+"}</span>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}} onClick={()=>setShowCompare(s=>!s)}>
+            <SH style={{marginBottom:0}}>🔍 전문가와 비교 (선택)</SH>
+            <span style={{fontSize:18,color:"#C2410C"}}>{showCompare?"−":"+"}</span>
           </div>
-          {showWset && (
-            <div style={{marginTop:14}}>
-              <WSETPicker wset={wset} setWset={setWset} wineType={mode==="cellar"?(sel?.wineType):(corrected?.wineType)}/>
+          {showCompare && (
+            <div style={{marginTop:12}}>
+              <button onClick={doCompare} disabled={comparing||!txt.trim()||!canSave} style={{width:"100%",background:cmpDone?"#F0FDF4":"#FFF7ED",color:cmpDone?"#2E7D32":"#C2410C",border:`1px solid ${cmpDone?"#BBF7D0":"#FED7AA"}`,borderRadius:8,padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer",opacity:(!txt.trim()||!canSave)?0.5:1}}>
+                {comparing?"🔍 비교 분석 중...":cmpDone?"✓ 비교 완료 — 다시 분석하려면 탭":"내 메모를 전문가·공식 노트와 비교 분석"}
+              </button>
+              {compare && (
+                <div style={{marginTop:12}}>
+                  {!compare.hasReference && <div style={{fontSize:11,color:"#C2410C",background:"#FFF7ED",borderRadius:6,padding:"6px 10px",marginBottom:10}}>※ 저장된 전문가/공식 노트가 없어 품종·산지의 전형적 프로파일과 비교했습니다.</div>}
+                  {compare.summary && <div style={{fontSize:13,color:"#333",lineHeight:1.7,marginBottom:12}}>{compare.summary}</div>}
+                  {compare.agreements?.length>0 && (
+                    <div style={{marginBottom:12}}>
+                      <div style={{fontSize:11,fontWeight:700,color:"#2E7D32",marginBottom:5}}>✓ 일치한 점</div>
+                      {compare.agreements.map((a,i)=>(<div key={i} style={{fontSize:12,color:"#555",lineHeight:1.6,marginBottom:2}}>· {a}</div>))}
+                    </div>
+                  )}
+                  {compare.differences?.length>0 && (
+                    <div style={{marginBottom:12}}>
+                      <div style={{fontSize:11,fontWeight:700,color:"#C2410C",marginBottom:6}}>⚖ 다르게 느낀 점</div>
+                      {compare.differences.filter(d=>d&&(d.aspect||d.why)).map((d,i)=>(
+                        <div key={i} style={{background:"#FFFBF5",borderRadius:8,padding:"9px 11px",marginBottom:6,border:"1px solid #f5e8d8"}}>
+                          {d.aspect && <div style={{fontSize:12,fontWeight:700,color:"#9A3412",marginBottom:3}}>{d.aspect}</div>}
+                          <div style={{fontSize:12,color:"#555",lineHeight:1.6}}><b>나:</b> {d.mine} <br/><b>전문가/전형:</b> {d.reference}</div>
+                          {d.why && <div style={{fontSize:12,color:"#777",lineHeight:1.6,marginTop:4}}>💡 {d.why}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {compare.learningPoint && <div style={{fontSize:12,color:"#666",lineHeight:1.7,fontStyle:"italic",background:"#FFF7ED",borderRadius:8,padding:"10px 12px"}}>📖 {compare.learningPoint}</div>}
+                </div>
+              )}
             </div>
-          )}
-          {!showWset && (
-            <div style={{fontSize:12,color:"#aaa",marginTop:6}}>색·향·당도·산도·타닌·바디 등을 아이콘으로 기록 (선택)</div>
           )}
         </div>
-        {structured && (
-          <div style={{...CS,border:`1px solid ${GOLD}40`}}>
-            <SH>✨ AI 정리 결과</SH>
-            <div style={{fontSize:12,color:"#2E7D32",marginBottom:10}}>✓ 색·향·맛 지표가 위 WSET 피커에 자동 입력되었습니다 (수정 가능)</div>
-            {structured.overallImpression && (<div style={{marginBottom:10}}><div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:4,textTransform:"uppercase"}}>총평</div><div style={{fontSize:13,lineHeight:1.7}}>{structured.overallImpression}</div></div>)}
-            <div style={{display:"flex",gap:12,alignItems:"center",marginTop:8}}>
-              {structured.rating && (<div style={{fontSize:28,fontWeight:700,color:GOLD}}>{structured.rating}<span style={{fontSize:12,color:"#ccc"}}>/100</span></div>)}
-              {structured.repurchase && (<span style={{fontSize:12,padding:"4px 12px",borderRadius:20,background:"#D1FAE5",color:"#065F46"}}>재구매: {structured.repurchase}</span>)}
-            </div>
+        {justSaved && (
+          <div style={{...CS,background:"#F0FDF4",border:"1px solid #BBF7D0",textAlign:"center"}}>
+            <div style={{fontSize:13,color:"#065F46",fontWeight:600}}>✓ {justSaved}님의 노트가 저장되었습니다</div>
+            <div style={{fontSize:11,color:"#16A34A",marginTop:3}}>이어서 <b>{taster}</b>님의 노트를 작성하세요 (와인·시음정보 유지됨)</div>
           </div>
         )}
-        <PB onClick={()=>{
-          if(!canSave)return;
-          onSave({
-            wineId:mode==="cellar"?sel?.id:null,
-            wineName:cleanName(wName,wVin),
-            vintage:wVin,
-            taster: taster||tasters[0]||"나",
-            ...meta,
-            freeText:txt,
-            ...(structured||{}),
-            ...wsetToFields(wset),
-            ...(myScore?{rating:myScore}:{}),
-            ...(myRepurchase?{repurchase:myRepurchase}:{}),
-          });
-        }} disabled={!canSave} full>
-          💾 시음노트 저장
+        <PB onClick={doSave} disabled={!canSave} full>
+          💾 {editNote?"시음노트 수정 저장":"시음노트 저장"}
         </PB>
+        {!editNote && tasters.filter(Boolean).length>1 && (
+          <button onClick={doSaveContinue} disabled={!canSave}
+            style={{width:"100%",marginTop:10,padding:"12px",background:"#fff",color:RED,border:`1px solid ${RED}`,borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",opacity:canSave?1:0.5}}>
+            💾 저장하고 다른 사람 노트 이어쓰기
+          </button>
+        )}
       </Pg>
     </div>
   );
@@ -2206,10 +2289,15 @@ function TasteRadar({ entries }) {
   );
 }
 
-function NoteDetailPage({ note, wine, onBack, onDelete }) {
+function NoteDetailPage({ note, wine, onBack, onDelete, onEdit }) {
   return (
     <div style={{minHeight:"100vh",background:"#F7F4F0",fontFamily:"system-ui,sans-serif"}}>
-      <TopBar title={`${TICON[wine?.wineType]||"🍾"} ${cleanName(note.wineName,note.vintage)} ${note.vintage||""}`} onBack={onBack} right={<DeleteBtn onDelete={onDelete}/>}/>
+      <TopBar title={`${TICON[wine?.wineType]||"🍾"} ${cleanName(note.wineName,note.vintage)} ${note.vintage||""}`} onBack={onBack} right={
+        <div style={{display:"flex",gap:6}}>
+          {onEdit && <button onClick={onEdit} style={{background:"rgba(255,255,255,.18)",border:"none",borderRadius:6,color:"#fff",fontSize:12,padding:"5px 12px",cursor:"pointer"}}>수정</button>}
+          <DeleteBtn onDelete={onDelete}/>
+        </div>
+      }/>
       <Pg>
         {note.rating && (
           <div style={{textAlign:"center",margin:"20px 0"}}>
@@ -2217,9 +2305,14 @@ function NoteDetailPage({ note, wine, onBack, onDelete }) {
             <div style={{fontSize:13,color:"#aaa",marginTop:4}}>/ 100점</div>
           </div>
         )}
+        {note.notePhotoId && (
+          <div style={CS}>
+            <WineImg photoId={note.notePhotoId} style={{width:"100%",maxHeight:320,objectFit:"contain",borderRadius:8,background:"#f9f7f5"}}/>
+          </div>
+        )}
         <div style={CS}>
           <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-            {[note.date&&`📅 ${note.date}`,note.location&&`📍 ${note.location}`,note.withWhom&&`👥 ${note.withWhom}`,note.foodPairing&&`🍽 ${note.foodPairing}`,note.decanting&&`⏱ ${note.decanting}`].filter(Boolean).map(s => (
+            {[note.taster&&`👤 ${note.taster}`,note.date&&`📅 ${note.date}`,note.location&&`📍 ${note.location}`,note.withWhom&&`👥 ${note.withWhom}`,note.foodPairing&&`🍽 ${note.foodPairing}`,note.decanting&&`⏱ ${note.decanting}`].filter(Boolean).map(s => (
               <span key={s} style={{fontSize:13,background:"#f5f2ee",borderRadius:8,padding:"5px 12px",color:"#666"}}>{s}</span>
             ))}
           </div>
@@ -2879,24 +2972,23 @@ function App() {
     alert("일괄 채우기 완료!");
   }
   function deleteWine(id) { persist(wines.filter(w=>w.id!==id),notes.filter(n=>n.wineId!==id)); back(); }
-  function addNote(n) {
-    const u=[...notes,{...n,id:String(Date.now()),createdAt:new Date().toISOString()}];
-    let updatedWines = wines;
-    if(n.wineId) {
-      updatedWines = wines.map(w => {
-        if(w.id!==n.wineId || w.type!=="cellar") return w;
-        const qty = parseInt(w.quantity)||1;
-        if(qty > 1) {
-          // 여러 병 중 1병 마심 → 수량만 차감, 상태 유지
-          return {...w, quantity: String(qty - 1)};
-        } else {
-          // 마지막 1병 → Consumed 처리
-          return {...w, status:"Consumed"};
-        }
-      });
+  
+  function saveNote(n, opts={}) {
+    let u, updatedWines = wines;
+    if(n.id && notes.some(x=>x.id===n.id)) {
+      u = notes.map(x=>x.id===n.id?{...x,...n}:x); // 수정
+    } else {
+      u = [...notes, {...n, id:String(Date.now())+Math.random().toString(36).slice(2,5), createdAt:new Date().toISOString()}];
+      if(n.wineId && !opts.skipQty) {
+        updatedWines = wines.map(w => {
+          if(w.id!==n.wineId || w.type!=="cellar") return w;
+          const qty = parseInt(w.quantity)||1;
+          return qty>1 ? {...w, quantity:String(qty-1)} : {...w, status:"Consumed"};
+        });
+      }
     }
     persist(updatedWines, u);
-    back();
+    if(!opts.stay) back();
   }
   function deleteNote(id) { persist(wines,notes.filter(n=>n.id!==id)); back(); }
 
@@ -2920,8 +3012,8 @@ function App() {
   }
   if (page==="detail") { return (<WineDetailPage key={ctx.wine?.id} wine={ctx.wine} wines={wines} notes={notes.filter(n=>n.wineId===ctx.wine?.id)} onBack={back} onUpdate={ch=>editWine(ctx.wine.id,ch)} onDelete={()=>deleteWine(ctx.wine.id)} onTaste={()=>nav("tasting",{wine:ctx.wine})} onOpenWine={(w)=>nav("detail",{wine:w})} googleMapsKey={googleMapsKey} tasters={tasters}/>); }
   if (page==="add") { return (<AddWinePage type={ctx.type} onAdd={w=>addWine({...w,type:ctx.type,status:"In Stock"})} onBack={back}/>); }
-  if (page==="tasting") { return (<AddTastingPage wine={ctx.wine||null} wines={cel} onSave={addNote} onBack={back} tasters={tasters}/>); }
-  if (page==="note") { return (<NoteDetailPage note={ctx.note} wine={wines.find(w=>w.id===ctx.note?.wineId)} onBack={back} onDelete={()=>deleteNote(ctx.note.id)}/>); }
+  if (page==="tasting") { return (<AddTastingPage wine={ctx.wine||null} wines={cel} onSave={saveNote} onBack={back} tasters={tasters} editNote={ctx.editNote||null}/>); }
+  if (page==="note") { return (<NoteDetailPage note={ctx.note} wine={wines.find(w=>w.id===ctx.note?.wineId)} onBack={back} onDelete={()=>deleteNote(ctx.note.id)} onEdit={()=>nav("tasting",{editNote:ctx.note})}/>); }
   if (page==="cellarmap") { return (<CellarMapPage wines={wines} onBack={back}/>); }
 
   return (
