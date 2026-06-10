@@ -259,8 +259,11 @@ async function callGemini(prompt, apiKey, tokens, model){
 let _aiProvider = "gemini"; // deployed default; user supplies Gemini key in Settings
 let _geminiKey = "";
 let _aiModel = "gemini-2.5-flash"; // 기본 모델 (설정에서 변경)
+let _ratingBoost = true;           // 평점 비었을 때 Pro로 보강
+let _ratingModel = "gemini-2.5-pro"; // 보강용 모델
 function setAIProvider(p, key){ _aiProvider=p; _geminiKey=key||""; }
 function setAIModel(m){ if(m) _aiModel = m; }
+function setRatingBoost(on, model){ _ratingBoost = !!on; if(model) _ratingModel = model; }
 
 // AI 오류 알림 (429 한도초과 vs 일반오류 구분, 3초 디바운스)
 let _lastNotify = 0;
@@ -474,6 +477,14 @@ ${known?`<known_facts>\n${known}\n</known_facts>`:""}
 };
 
 // 와인 1병 AI 채우기 핵심 로직 — 변경할 필드 객체 반환 (doEnrich와 일괄처리가 공유)
+// 전문가 평점·노트 전용 보강 (가벼운 호출 — 평점이 비었을 때 Pro로 메움)
+const lookupRatings = (name, v, model) => aiJson(
+`당신은 와인 평론 데이터 전문가다. 와인 "${name}"${v?` (${v}빈티지)`:""}에 대해 주요 평론가가 매긴 실제 점수와 시음노트만 JSON으로 반환. 마크다운 없이 순수 JSON만.
+실제로 확인된 점수만 입력하고, 모르는 평론가는 빈 문자열/배열로 둘 것. 절대 점수를 지어내지 말 것(틀린 점수는 치명적 오류).
+expertNotes의 note는 자연스러운 한국어로 번역. 면책 문구 금지.
+{"expertRatings":{"bh":"Burghound 점수숫자","ws":"Wine Spectator","wa":"Wine Advocate","vinous":"Vinous","js":"James Suckling","jr":"Jancis Robinson(20점만점)","dec":"Decanter","jm":"Jasper Morris"},"expertNotes":[{"critic":"평론가명","score":"점수","note":"한국어 번역","year":""}]}`,
+  2500, model);
+
 async function computeEnrich(wine, cellarWines, lite=false, model){
   const name = wine.nameKR || wine.nameEN;
   const v = wine.vintage;
@@ -481,7 +492,21 @@ async function computeEnrich(wine, cellarWines, lite=false, model){
   const r = await enrichAll(name, v, {producer:wine.producer, country:wine.country, region:wine.region, grapeVariety:wine.grapeVariety, wineType:wine.wineType}, model);
   const { insights:_ig, _reasoning, ...flat } = r;
   const notes = flat.expertNotes?.length ? flat.expertNotes : (wine.expertNotes||[]);
-  const mergedRat = syncRatings(notes, {...(wine.expertRatings||{}), ...(flat.expertRatings||{})});
+  let mergedRat = syncRatings(notes, {...(wine.expertRatings||{}), ...(flat.expertRatings||{})});
+  let finalNotes = notes;
+  // 평점 보강: 기본 모델이 Pro가 아니고, 평점이 비어있고, 보강이 켜져 있으면 Pro로 평점만 추가 조회
+  const usedModel = model || _aiModel;
+  const ratingsEmpty = Object.values(mergedRat).filter(x=>x&&String(x).trim()).length === 0;
+  if(_ratingBoost && ratingsEmpty && !usedModel.includes("pro") && !lite){
+    try{
+      const rb = await lookupRatings(name, v, _ratingModel);
+      const cleanRb = {};
+      Object.entries(rb.expertRatings||{}).forEach(([k,val])=>{ const m=String(val||"").match(/[\d.]+(?:\s*-\s*[\d.]+)?/); if(m) cleanRb[k]=m[0].replace(/\s/g,""); });
+      const rbNotes = rb.expertNotes?.length ? rb.expertNotes.filter(n=>n.note && !isDisclaimerNote(n.note)) : [];
+      if(rbNotes.length && !finalNotes.length) finalNotes = rbNotes;
+      mergedRat = syncRatings(finalNotes.length?finalNotes:rbNotes, {...mergedRat, ...cleanRb});
+    }catch(e){}
+  }
   let insights = null, rec = null;
   if(!lite){
     // 심층 인사이트 + 셀러추천 (개별 채우기에서만 — 일괄에서는 호출 절약)
@@ -503,7 +528,7 @@ async function computeEnrich(wine, cellarWines, lite=false, model){
     producerInfo: {...(wine.producerInfo||{}), ...(flat.producerInfo||{})},
     vintageInfo: {...(wine.vintageInfo||{}), ...(flat.vintageInfo||{})},
     winemaking: {...(wine.winemaking||{}), ...(flat.winemaking||{})},
-    expertNotes: notes.filter(n=>!isDisclaimerNote(n.note)),
+    expertNotes: finalNotes.filter(n=>!isDisclaimerNote(n.note)),
     ...(insights?{wineInsights:insights}:{}),
     ...(rec?{recommendations:rec}:{}),
   };
@@ -2729,6 +2754,7 @@ function App() {
   const [aiProviderState, setAiProviderState] = useState("gemini");
   const [geminiKeyState, setGeminiKeyState] = useState("");
   const [geminiModelState, setGeminiModelState] = useState("gemini-2.5-flash");
+  const [ratingBoostState, setRatingBoostState] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [tasters, setTasters] = useState(["나","아내"]);
 
@@ -2746,6 +2772,7 @@ function App() {
         if(s.aiProvider){ setAiProviderState(s.aiProvider); setAIProvider(s.aiProvider, s.geminiKey||""); }
         if(s.geminiKey) setGeminiKeyState(s.geminiKey);
         if(s.geminiModel){ setGeminiModelState(s.geminiModel); setAIModel(s.geminiModel); }
+        if(s.ratingBoost!==undefined){ setRatingBoostState(s.ratingBoost); setRatingBoost(s.ratingBoost); }
         if(s.tasters) setTasters(s.tasters);
       }
     }).catch(()=>{}); } catch(e) {}
@@ -2762,6 +2789,7 @@ function App() {
   }
   function saveTasters(arr) { setTasters(arr); saveSettings({tasters:arr}); }
   function saveModel(m){ setGeminiModelState(m); setAIModel(m); saveSettings({geminiModel:m}); }
+  function saveRatingBoost(on){ setRatingBoostState(on); setRatingBoost(on); saveSettings({ratingBoost:on}); }
   function saveSettings(patch) {
     try {
       window.storage.get("wine-cellar-settings").then(r=>{
@@ -2953,8 +2981,16 @@ function App() {
                   <input value={geminiModelState} onChange={e=>saveModel(e.target.value)}
                     style={{width:"100%",border:"1px solid #eee",borderRadius:6,padding:"6px 9px",fontSize:11,color:"#888",outline:"none",boxSizing:"border-box"}}/>
                   <div style={{fontSize:10,color:"#bbb",marginTop:4,lineHeight:1.5}}>
-                    무료 등급은 Flash·Flash-Lite만 됩니다. Pro 및 3.x(예: gemini-3-flash, gemini-3.1-pro-preview)는 결제 등록 후 위 칸에 직접 입력해 사용하세요. 일괄 채우기는 비용 절감을 위해 항상 Flash-Lite로 처리됩니다.
+                    무료 등급은 Flash·Flash-Lite만 됩니다. Pro 및 3.x(예: gemini-3-flash, gemini-3.1-pro-preview)는 결제 등록 후 위 칸에 직접 입력해 사용하세요. 일괄 채우기는 여기서 선택한 모델로, 병당 1회만 호출합니다.
                   </div>
+                  {/* 평점 보강 토글 */}
+                  <label style={{display:"flex",alignItems:"flex-start",gap:8,marginTop:12,cursor:"pointer"}}>
+                    <input type="checkbox" checked={ratingBoostState} onChange={e=>saveRatingBoost(e.target.checked)} style={{marginTop:2}}/>
+                    <span>
+                      <span style={{fontSize:12,fontWeight:600,color:"#555"}}>전문가 평점 Pro 보강</span>
+                      <span style={{display:"block",fontSize:10,color:"#aaa",marginTop:2,lineHeight:1.5}}>기본 모델(Flash)이 평점을 못 채우면 Pro로 평점만 한 번 더 조회합니다. 평점 누락을 크게 줄이며, 평점 전용이라 비용은 미미합니다. (기본 모델이 이미 Pro면 동작 안 함 · 결제 등록 필요)</span>
+                    </span>
+                  </label>
                 </div>
               </div>
             )}
