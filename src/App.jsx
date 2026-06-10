@@ -1443,7 +1443,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
             {/* ── 내부 탭 ── */}
             <div style={{display:"flex",gap:4,position:"sticky",top:0,zIndex:5,background:"#F7F4F0",padding:"6px 0",marginBottom:4}}>
-              {[["info","정보"],["detail","상세"],["tips","팁"],["notes","노트"]].map(([k,l])=>(
+              {[["info","정보"],["detail","상세"],["taste","시음"],["tips","팁"]].map(([k,l])=>(
                 <button key={k} onClick={()=>setSubtab(k)}
                   style={{flex:1,padding:"8px 2px",fontSize:13,fontWeight:subtab===k?700:500,borderRadius:8,cursor:"pointer",border:"none",background:subtab===k?RED:"#fff",color:subtab===k?"#fff":"#888",boxShadow:subtab===k?"none":"0 1px 2px rgba(0,0,0,.04)"}}>
                   {l}
@@ -1476,7 +1476,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Expert Tasting Notes ── */}
-            {subtab==="tips" && wine.expertNotes && wine.expertNotes.filter(n=>!isDisclaimerNote(n.note)).length > 0 && (
+            {subtab==="taste" && wine.expertNotes && wine.expertNotes.filter(n=>!isDisclaimerNote(n.note)).length > 0 && (
               <div style={CS}>
                 <SH>🗣 전문가 시음노트</SH>
                 {wine.expertNotes.filter(n=>!isDisclaimerNote(n.note)).map((en, i) => (
@@ -1495,7 +1495,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Winery Official Note ── */}
-            {subtab==="tips" && wine.officialNote && (
+            {subtab==="taste" && wine.officialNote && (
               <div style={CS}>
                 <SH>🍇 와이너리 공식 시음노트</SH>
                 <div style={{background:"#FBF8F4",borderRadius:10,padding:14,borderLeft:`3px solid ${GOLD}`,fontSize:13,color:"#555",lineHeight:1.8,fontStyle:"italic"}}>"{wine.officialNote}"</div>
@@ -1691,7 +1691,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── My Tasting Notes ── */}
-            {subtab==="notes" && notes.length > 0 && (
+            {subtab==="taste" && notes.length > 0 && (
               <div style={CS}>
                 <SH>📝 시음노트 ({notes.length})</SH>
                 {[...new Set(notes.map(n=>n.taster).filter(Boolean))].length > 1 && (
@@ -1732,7 +1732,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             {subtab==="info" && (<div style={CS}><SH>📷 라벨 사진</SH><LabelPhoto photo={wine.labelPhoto} photoId={wine.labelPhotoId} onUpload={id=>onUpdate({labelPhotoId:id,labelPhoto:""})}/></div>)}
 
             {/* ── Recommendations ── */}
-            {subtab==="notes" && reco && reco.items && reco.items.length>0 && (
+            {subtab==="tips" && reco && reco.items && reco.items.length>0 && (
             <div style={CS}>
               <SH>🍷 내 셀러의 비슷한 와인</SH>
                 <div>
