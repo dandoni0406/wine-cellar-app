@@ -472,7 +472,7 @@ ${known?`<known_facts>\n${known}\n</known_facts>`:""}
 };
 
 // 와인 1병 AI 채우기 핵심 로직 — 변경할 필드 객체 반환 (doEnrich와 일괄처리가 공유)
-async function computeEnrich(wine, cellarWines){
+async function computeEnrich(wine, cellarWines, lite=false){
   const name = wine.nameKR || wine.nameEN;
   const v = wine.vintage;
   if(!name) return null;
@@ -480,12 +480,15 @@ async function computeEnrich(wine, cellarWines){
   const { insights:_ig, _reasoning, ...flat } = r;
   const notes = flat.expertNotes?.length ? flat.expertNotes : (wine.expertNotes||[]);
   const mergedRat = syncRatings(notes, {...(wine.expertRatings||{}), ...(flat.expertRatings||{})});
-  const anc = {producer:flat.producer||wine.producer, country:flat.country||wine.country, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety};
-  const ins = await deepInsights(name, v, anc);
-  const { _reasoning:_ir, ...insights } = ins;
-  const mergedW = {...wine, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety, wineType:flat.wineType||wine.wineType, country:flat.country||wine.country};
-  let rec = null;
-  try { rec = await recommendFromCellar(mergedW, cellarWines); } catch(e){}
+  let insights = null, rec = null;
+  if(!lite){
+    // 심층 인사이트 + 셀러추천 (개별 채우기에서만 — 일괄에서는 호출 절약)
+    const anc = {producer:flat.producer||wine.producer, country:flat.country||wine.country, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety};
+    const ins = await deepInsights(name, v, anc);
+    const { _reasoning:_ir, ...rest } = ins; insights = rest;
+    const mergedW = {...wine, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety, wineType:flat.wineType||wine.wineType, country:flat.country||wine.country};
+    try { rec = await recommendFromCellar(mergedW, cellarWines); } catch(e){}
+  }
   return {
     ...flat,
     nameKR: wine.nameKR||flat.nameKR||"",
@@ -499,7 +502,7 @@ async function computeEnrich(wine, cellarWines){
     vintageInfo: {...(wine.vintageInfo||{}), ...(flat.vintageInfo||{})},
     winemaking: {...(wine.winemaking||{}), ...(flat.winemaking||{})},
     expertNotes: notes.filter(n=>!isDisclaimerNote(n.note)),
-    wineInsights: insights,
+    ...(insights?{wineInsights:insights}:{}),
     ...(rec?{recommendations:rec}:{}),
   };
 }
@@ -1312,7 +1315,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
   }
   const [insights, setInsights] = useState(wine.wineInsights||null);
   const [loadingInsights, setLoadingInsights] = useState(false);
-  const [subtab, setSubtab] = useState("info");
+  const [subtab, setSubtab] = useState((hasData(wine.terroir)||hasData(wine.producerInfo)||wine.wineInsights) ? "detail" : "info");
 
   async function doLoadInsights(){
     setLoadingInsights(true);
@@ -1329,7 +1332,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
     setEnriching(true);
     try{
       const ch = await computeEnrich(wine, wines);
-      if(ch){ onUpdate(ch); setInsights(ch.wineInsights||null); if(ch.recommendations) setReco(ch.recommendations); }
+      if(ch){ onUpdate(ch); setInsights(ch.wineInsights||null); if(ch.recommendations) setReco(ch.recommendations); setSubtab("detail"); }
     }catch(e){}
     setEnriching(false);
   }
@@ -2823,14 +2826,24 @@ function App() {
   async function batchFill(){
     const targets = wines.filter(w => !hasData(w.terroir) && !w.wineInsights);
     if(targets.length===0){ alert("이미 모든 와인에 AI 정보가 채워져 있습니다."); return; }
-    const mins = Math.ceil(targets.length*16/60);
-    if(!window.confirm(`정보가 비어있는 ${targets.length}병을 AI로 채웁니다.\n약 ${mins}분 소요되며, 진행 중 앱을 닫지 마세요.\n계속할까요?`)) return;
+    const mins = Math.ceil(targets.length*7/60);
+    if(!window.confirm(`정보가 비어있는 ${targets.length}병의 기본·상세 정보를 AI로 채웁니다.\n약 ${mins}분 소요되며, 진행 중 앱을 닫지 마세요.\n(심층 팁·셀러추천은 각 와인에서 개별로 받으세요)\n계속할까요?`)) return;
     setBatchState({done:0,total:targets.length});
     const sleep = ms=>new Promise(r=>setTimeout(r,ms));
     for(let i=0;i<targets.length;i++){
-      try{ const ch = await computeEnrich(targets[i], wines); if(ch) editWine(targets[i].id, ch); }catch(e){}
+      try{
+        const ch = await computeEnrich(targets[i], wines, true); // lite=병당 1호출
+        if(ch) editWine(targets[i].id, ch);
+      }catch(e){
+        const msg = String(e&&e.message||"");
+        if(msg.includes("429")||msg.includes("RATE_LIMIT")){
+          setBatchState(null);
+          alert(`⏳ 한도 초과로 일괄 채우기를 중단했습니다.\n\n${i}병 완료, ${targets.length-i}병 남음.\nGemini 무료 일일 한도는 태평양시간 자정(한국 오후 4~5시)에 리셋됩니다. 그 후 다시 "한번에 채우기"를 누르면 남은 와인만 이어서 채웁니다.`);
+          return;
+        }
+      }
       setBatchState({done:i+1,total:targets.length});
-      if(i<targets.length-1) await sleep(8000); // 병당 3호출 → RPM 15 회피
+      if(i<targets.length-1) await sleep(6500); // 병당 1호출, RPM 10 회피(분당 ~9회)
     }
     setBatchState(null);
     alert("일괄 채우기 완료!");
