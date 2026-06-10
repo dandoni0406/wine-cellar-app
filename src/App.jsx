@@ -2832,12 +2832,12 @@ function App() {
     const targets = wines.filter(w => !hasData(w.terroir) && !w.wineInsights);
     if(targets.length===0){ alert("이미 모든 와인에 AI 정보가 채워져 있습니다."); return; }
     const mins = Math.ceil(targets.length*7/60);
-    if(!window.confirm(`정보가 비어있는 ${targets.length}병의 기본·상세 정보를 AI로 채웁니다.\n약 ${mins}분 소요되며, 진행 중 앱을 닫지 마세요.\n(심층 팁·셀러추천은 각 와인에서 개별로 받으세요)\n계속할까요?`)) return;
+    if(!window.confirm(`정보가 비어있는 ${targets.length}병의 기본·상세 정보를 현재 선택된 AI 모델(${_aiModel})로 채웁니다.\n약 ${mins}분 소요되며, 진행 중 앱을 닫지 마세요.\n(심층 팁·셀러추천은 각 와인에서 "재조회"로 받으세요)\n비용을 아끼려면 설정에서 "절약" 모델로 바꾼 뒤 진행하세요.\n계속할까요?`)) return;
     setBatchState({done:0,total:targets.length});
     const sleep = ms=>new Promise(r=>setTimeout(r,ms));
     for(let i=0;i<targets.length;i++){
       try{
-        const ch = await computeEnrich(targets[i], wines, true, "gemini-2.5-flash-lite"); // lite=병당 1호출, 일괄은 최저가 모델
+        const ch = await computeEnrich(targets[i], wines, true); // lite=병당 1호출, 선택한 모델 사용
         if(ch) editWine(targets[i].id, ch);
       }catch(e){
         const msg = String(e&&e.message||"");
