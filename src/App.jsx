@@ -471,6 +471,38 @@ ${known?`<known_facts>\n${known}\n</known_facts>`:""}
 }`, 8000);
 };
 
+// 와인 1병 AI 채우기 핵심 로직 — 변경할 필드 객체 반환 (doEnrich와 일괄처리가 공유)
+async function computeEnrich(wine, cellarWines){
+  const name = wine.nameKR || wine.nameEN;
+  const v = wine.vintage;
+  if(!name) return null;
+  const r = await enrichAll(name, v, {producer:wine.producer, country:wine.country, region:wine.region, grapeVariety:wine.grapeVariety, wineType:wine.wineType});
+  const { insights:_ig, _reasoning, ...flat } = r;
+  const notes = flat.expertNotes?.length ? flat.expertNotes : (wine.expertNotes||[]);
+  const mergedRat = syncRatings(notes, {...(wine.expertRatings||{}), ...(flat.expertRatings||{})});
+  const anc = {producer:flat.producer||wine.producer, country:flat.country||wine.country, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety};
+  const ins = await deepInsights(name, v, anc);
+  const { _reasoning:_ir, ...insights } = ins;
+  const mergedW = {...wine, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety, wineType:flat.wineType||wine.wineType, country:flat.country||wine.country};
+  let rec = null;
+  try { rec = await recommendFromCellar(mergedW, cellarWines); } catch(e){}
+  return {
+    ...flat,
+    nameKR: wine.nameKR||flat.nameKR||"",
+    nameEN: wine.nameEN||flat.nameEN||"",
+    vintage: wine.vintage||flat.vintage||"",
+    country: normCountry(flat.country||wine.country||""),
+    producer: wine.producer||flat.producer||"",
+    expertRatings: mergedRat,
+    terroir: {...(wine.terroir||{}), ...(flat.terroir||{})},
+    producerInfo: {...(wine.producerInfo||{}), ...(flat.producerInfo||{})},
+    vintageInfo: {...(wine.vintageInfo||{}), ...(flat.vintageInfo||{})},
+    winemaking: {...(wine.winemaking||{}), ...(flat.winemaking||{})},
+    expertNotes: notes.filter(n=>!isDisclaimerNote(n.note)),
+    wineInsights: insights,
+    ...(rec?{recommendations:rec}:{}),
+  };
+}
 const correctWine = (name, v) => aiJson(`와인 "${name}"${v?` 빈티지 ${v}`:""}을 보정해서 JSON만. nameKR/nameEN에 빈티지 포함 금지.
 {"nameKR":"","nameEN":"","vintage":"","producer":"","region":"","country":"","wineType":"Red|White|Rosé|Sparkling|Dessert|Fortified","isBurgundy":false}`, 1500);
 // 자유서술 → WSET 지표 매핑용
@@ -860,7 +892,7 @@ function WCard({ wine, nc, onClick, extra }) {
 }
 
 // ── Tabs ──────────────────────────────────────────────────────────
-function CellarTab({ wines, notes, onNav }) {
+function CellarTab({ wines, notes, onNav, onBatchFill, batchState }) {
   const [flt, sf] = useState("all");
   const [sort, setSort] = useState("newest");
   const [search, setSearch] = useState("");
@@ -909,6 +941,27 @@ function CellarTab({ wines, notes, onNav }) {
         <span style={{fontWeight:600,fontSize:15}}>내 셀러 <span style={{color:"#aaa",fontWeight:400,fontSize:13}}>({inStock.length}병)</span></span>
         <PB onClick={()=>onNav("add",{type:"cellar"})}>+ 와인 추가</PB>
       </div>
+
+      {/* ── 일괄 AI 채우기 ── */}
+      {(()=>{
+        const empties = wines.filter(w=>!hasData(w.terroir)&&!w.wineInsights).length;
+        if(batchState){
+          const pct = Math.round(batchState.done/batchState.total*100);
+          return (
+            <div style={{background:"#FBF4E4",borderRadius:10,padding:"10px 14px",marginBottom:12,border:`1px solid ${GOLD}40`}}>
+              <div style={{fontSize:13,fontWeight:600,color:GOLD,marginBottom:6}}>🤖 일괄 채우는 중... {batchState.done}/{batchState.total}</div>
+              <div style={{height:6,background:"#eee",borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${pct}%`,background:GOLD,transition:"width .3s"}}/></div>
+              <div style={{fontSize:11,color:"#aaa",marginTop:5}}>앱을 닫지 마세요. 한도 회피를 위해 천천히 진행됩니다.</div>
+            </div>
+          );
+        }
+        if(empties===0) return null;
+        return (
+          <button onClick={onBatchFill} style={{width:"100%",background:"#FBF4E4",color:GOLD,border:`1px solid ${GOLD}40`,borderRadius:10,padding:"10px",fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:12}}>
+            🤖 정보 없는 {empties}병 한번에 AI 채우기
+          </button>
+        );
+      })()}
 
       {/* ── Drink timing alert ── */}
       {(()=>{
@@ -1275,39 +1328,8 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
   async function doEnrich(){
     setEnriching(true);
     try{
-      const name=wine.nameKR||wine.nameEN;
-      const v=wine.vintage;
-      const r = await enrichAll(name, v, {producer:wine.producer, country:wine.country, region:wine.region, grapeVariety:wine.grapeVariety, wineType:wine.wineType});   // 데이터 채우기 (Flash 1)
-      const { insights:_ig, _reasoning, ...flat } = r;
-      const notes = flat.expertNotes?.length ? flat.expertNotes : (wine.expertNotes||[]);
-      const mergedRat = syncRatings(notes, {...(wine.expertRatings||{}), ...(flat.expertRatings||{})});
-      // 심층 인사이트 별도 호출 (Flash 2) — 갱신된 정보를 앵커로
-      const anc = {producer:flat.producer||wine.producer, country:flat.country||wine.country, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety};
-      const ins = await deepInsights(name, v, anc);
-      const { _reasoning:_ir, ...insights } = ins;
-      // 셀러 비슷한 와인도 같은 호출에서 (갱신된 정보 기준)
-      const mergedW = {...wine, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety, wineType:flat.wineType||wine.wineType, country:flat.country||wine.country};
-      let rec = null;
-      try { rec = await recommendFromCellar(mergedW, wines); } catch(e) {}
-      // 모든 변경을 한 번에 저장 (두 번 나눠 저장하면 두 번째가 첫 번째를 덮어씀)
-      onUpdate({
-        ...flat,
-        nameKR: wine.nameKR||flat.nameKR||"",
-        nameEN: wine.nameEN||flat.nameEN||"",
-        vintage: wine.vintage||flat.vintage||"",
-        country: normCountry(flat.country||wine.country||""),
-        producer: wine.producer||flat.producer||"",
-        expertRatings: mergedRat,
-        terroir: {...(wine.terroir||{}), ...(flat.terroir||{})},
-        producerInfo: {...(wine.producerInfo||{}), ...(flat.producerInfo||{})},
-        vintageInfo: {...(wine.vintageInfo||{}), ...(flat.vintageInfo||{})},
-        winemaking: {...(wine.winemaking||{}), ...(flat.winemaking||{})},
-        expertNotes: notes.filter(n=>!isDisclaimerNote(n.note)),
-        wineInsights: insights,
-        ...(rec?{recommendations:rec}:{}),
-      });
-      setInsights(insights);
-      if(rec) setReco(rec);
+      const ch = await computeEnrich(wine, wines);
+      if(ch){ onUpdate(ch); setInsights(ch.wineInsights||null); if(ch.recommendations) setReco(ch.recommendations); }
     }catch(e){}
     setEnriching(false);
   }
@@ -2796,6 +2818,23 @@ function App() {
 
   function addWine(w) { const u=[...wines,{...w,id:String(Date.now()),createdAt:new Date().toISOString()}]; persist(u,notes); back(); }
   function editWine(id,ch) { sw(prev=>{ const u=prev.map(w=>w.id===id?{...w,...ch}:w); saveLocal(u,notes); return u; }); if(ctx.wine?.id===id)sc(c=>({...c,wine:{...c.wine,...ch}})); }
+  // 일괄 채우기 — 정보 없는 와인만 순차 호출 + 딜레이(RPM 회피)
+  const [batchState, setBatchState] = useState(null);
+  async function batchFill(){
+    const targets = wines.filter(w => !hasData(w.terroir) && !w.wineInsights);
+    if(targets.length===0){ alert("이미 모든 와인에 AI 정보가 채워져 있습니다."); return; }
+    const mins = Math.ceil(targets.length*16/60);
+    if(!window.confirm(`정보가 비어있는 ${targets.length}병을 AI로 채웁니다.\n약 ${mins}분 소요되며, 진행 중 앱을 닫지 마세요.\n계속할까요?`)) return;
+    setBatchState({done:0,total:targets.length});
+    const sleep = ms=>new Promise(r=>setTimeout(r,ms));
+    for(let i=0;i<targets.length;i++){
+      try{ const ch = await computeEnrich(targets[i], wines); if(ch) editWine(targets[i].id, ch); }catch(e){}
+      setBatchState({done:i+1,total:targets.length});
+      if(i<targets.length-1) await sleep(8000); // 병당 3호출 → RPM 15 회피
+    }
+    setBatchState(null);
+    alert("일괄 채우기 완료!");
+  }
   function deleteWine(id) { persist(wines.filter(w=>w.id!==id),notes.filter(n=>n.wineId!==id)); back(); }
   function addNote(n) {
     const u=[...notes,{...n,id:String(Date.now()),createdAt:new Date().toISOString()}];
@@ -2905,7 +2944,7 @@ function App() {
         ))}
       </div>
       <div style={{padding:16,maxWidth:680,margin:"0 auto",paddingTop:16}}>
-        {tab==="cellar" && (<CellarTab wines={cel} notes={notes} onNav={nav}/>)}
+        {tab==="cellar" && (<CellarTab wines={cel} notes={notes} onNav={nav} onBatchFill={batchFill} batchState={batchState}/>)}
         {tab==="tasting" && (<TastingTab notes={notes} wines={wines} onNav={nav}/>)}
         {tab==="wishlist" && (<WishlistTab wines={wis} onNav={nav} onMove={id=>editWine(id,{type:"cellar",status:"In Stock"})}/>)}
         {tab==="stats" && (<StatsTab wines={wines} notes={notes} tasters={tasters}/>)}
