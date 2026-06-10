@@ -219,7 +219,7 @@ async function callClaude(prompt, tokens, drive){
 }
 
 async function callGemini(prompt, apiKey, tokens, model){
-  model = model || "gemini-2.5-flash";
+  model = model || _aiModel || "gemini-2.5-flash";
   const isPro = model.includes("pro");
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const genConfig = {
@@ -258,7 +258,9 @@ async function callGemini(prompt, apiKey, tokens, model){
 // Unified AI caller — routes to Gemini or Claude based on settings
 let _aiProvider = "gemini"; // deployed default; user supplies Gemini key in Settings
 let _geminiKey = "";
+let _aiModel = "gemini-2.5-flash"; // 기본 모델 (설정에서 변경)
 function setAIProvider(p, key){ _aiProvider=p; _geminiKey=key||""; }
+function setAIModel(m){ if(m) _aiModel = m; }
 
 // AI 오류 알림 (429 한도초과 vs 일반오류 구분, 3초 디바운스)
 let _lastNotify = 0;
@@ -302,7 +304,7 @@ async function callGeminiVision(prompt, dataUrl, tokens){
   const mm=(dataUrl||"").match(/^data:(image\/[\w+]+);base64,(.+)$/);
   const mime=mm?.[1]||"image/jpeg", b64=mm?.[2]||"";
   if(!b64) throw new Error("이미지 데이터를 읽지 못했습니다");
-  const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/${_aiModel||"gemini-2.5-flash"}:generateContent?key=${apiKey}`;
   const body=JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:mime,data:b64}}]}],
       generationConfig:{maxOutputTokens:Math.max(tokens||1500,4000),temperature:0.1,thinkingConfig:{thinkingBudget:0},responseMimeType:"application/json"}});
   const sleep=ms=>new Promise(res=>setTimeout(res,ms));
@@ -369,7 +371,7 @@ famous: 잘 알려진 대안 2-3개 (비슷한 등급·스타일·가격대)
 gems: 덜 알려졌지만 가성비 좋거나 품질 뛰어난 와인 2-3개`, 1500
 );
 // 내 셀러 안에서 비슷한 와인 추천 (외부 환각 방지)
-const recommendFromCellar = (wine, cellarWines) => {
+const recommendFromCellar = (wine, cellarWines, model) => {
   const others = (cellarWines||[]).filter(w => w.id !== wine.id);
   if(others.length < 2) return Promise.resolve({ items:[], _few:true });
   const g1 = s => (s||"").split(/[,/·&]| 및 /)[0].trim().toLowerCase();
@@ -384,7 +386,7 @@ const recommendFromCellar = (wine, cellarWines) => {
 반드시 아래 목록의 id만 사용. 목록에 없는 와인 절대 금지. 비슷한 게 정말 없으면 빈 배열.
 목록 (id | 이름 | 생산자 | 지역,국가 | 품종 | 종류):
 ${list}
-JSON만: {"items":[{"id":"목록의 id 그대로","whySimilar":"왜 비슷한지 한 문장"}]}`, 1500);
+JSON만: {"items":[{"id":"목록의 id 그대로","whySimilar":"왜 비슷한지 한 문장"}]}`, 1500, model);
 };
 
 const lookupWineInsights = (name, v) => aiJson(
@@ -395,7 +397,7 @@ const lookupWineInsights = (name, v) => aiJson(
 );
 
 // 통합 채우기 — XML 구조 + _reasoning(내장 사고) + anchor(환각 방지)
-const enrichAll = (name, v, anchor) => {
+const enrichAll = (name, v, anchor, model) => {
   const a = anchor||{};
   const known = [a.producer&&`생산자: ${a.producer}`, a.country&&`국가: ${a.country}`, a.region&&`지역: ${a.region}`, a.grapeVariety&&`품종: ${a.grapeVariety}`, a.wineType&&`종류: ${a.wineType}`].filter(Boolean).join(" / ");
   return aiJson(
@@ -431,11 +433,11 @@ _reasoning 예시: "생산자는 Domaine Georges Mugneret-Gibourg, 산지는 프
 "winemaking":{"fermentation":"","yeast":"","vessel":"","aging":"","agingVessel":"","agingTime":"","malo":"","filtration":"","sulfur":""},
 "expertNotes":[{"critic":"","score":"","note":"한국어 번역","year":""}],
 "officialNote":"와이너리 공식 시음노트(테크니컬 시트/홈페이지 표기)를 한국어로 번역. 공식 자료가 확인되지 않으면 빈 문자열. 절대 지어내지 말 것"
-}`, 6000);
+}`, 6000, model);
 };
 
 // 심층 인사이트 — 별도 집중 호출(Flash가 한 주제에 집중 → 풍부·정확)
-const deepInsights = (name, v, anchor) => {
+const deepInsights = (name, v, anchor, model) => {
   const a = anchor||{};
   const known = [a.producer&&`생산자:${a.producer}`, a.country&&`국가:${a.country}`, a.region&&`지역:${a.region}`, a.grapeVariety&&`품종:${a.grapeVariety}`].filter(Boolean).join(" / ");
   return aiJson(
@@ -468,15 +470,15 @@ ${known?`<known_facts>\n${known}\n</known_facts>`:""}
 "peakWindow":"최적 음용 시기","decanting":"디캔팅 권장 여부·시간","servingTemp":"적정 서빙 온도",
 "foodPairing":["페어링1","페어링2","페어링3","페어링4"],
 "rarityNote":"생산량·희소성·시장 접근성","funFact":"흥미로운 사실 1-2문장"
-}`, 8000);
+}`, 8000, model);
 };
 
 // 와인 1병 AI 채우기 핵심 로직 — 변경할 필드 객체 반환 (doEnrich와 일괄처리가 공유)
-async function computeEnrich(wine, cellarWines, lite=false){
+async function computeEnrich(wine, cellarWines, lite=false, model){
   const name = wine.nameKR || wine.nameEN;
   const v = wine.vintage;
   if(!name) return null;
-  const r = await enrichAll(name, v, {producer:wine.producer, country:wine.country, region:wine.region, grapeVariety:wine.grapeVariety, wineType:wine.wineType});
+  const r = await enrichAll(name, v, {producer:wine.producer, country:wine.country, region:wine.region, grapeVariety:wine.grapeVariety, wineType:wine.wineType}, model);
   const { insights:_ig, _reasoning, ...flat } = r;
   const notes = flat.expertNotes?.length ? flat.expertNotes : (wine.expertNotes||[]);
   const mergedRat = syncRatings(notes, {...(wine.expertRatings||{}), ...(flat.expertRatings||{})});
@@ -484,10 +486,10 @@ async function computeEnrich(wine, cellarWines, lite=false){
   if(!lite){
     // 심층 인사이트 + 셀러추천 (개별 채우기에서만 — 일괄에서는 호출 절약)
     const anc = {producer:flat.producer||wine.producer, country:flat.country||wine.country, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety};
-    const ins = await deepInsights(name, v, anc);
+    const ins = await deepInsights(name, v, anc, model);
     const { _reasoning:_ir, ...rest } = ins; insights = rest;
     const mergedW = {...wine, region:flat.region||wine.region, grapeVariety:flat.grapeVariety||wine.grapeVariety, wineType:flat.wineType||wine.wineType, country:flat.country||wine.country};
-    try { rec = await recommendFromCellar(mergedW, cellarWines); } catch(e){}
+    try { rec = await recommendFromCellar(mergedW, cellarWines, model); } catch(e){}
   }
   return {
     ...flat,
@@ -2726,6 +2728,7 @@ function App() {
   const [googleMapsKey, setGoogleMapsKey] = useState("");
   const [aiProviderState, setAiProviderState] = useState("gemini");
   const [geminiKeyState, setGeminiKeyState] = useState("");
+  const [geminiModelState, setGeminiModelState] = useState("gemini-2.5-flash");
   const [showSettings, setShowSettings] = useState(false);
   const [tasters, setTasters] = useState(["나","아내"]);
 
@@ -2742,6 +2745,7 @@ function App() {
         if(s.googleMapsKey) setGoogleMapsKey(s.googleMapsKey);
         if(s.aiProvider){ setAiProviderState(s.aiProvider); setAIProvider(s.aiProvider, s.geminiKey||""); }
         if(s.geminiKey) setGeminiKeyState(s.geminiKey);
+        if(s.geminiModel){ setGeminiModelState(s.geminiModel); setAIModel(s.geminiModel); }
         if(s.tasters) setTasters(s.tasters);
       }
     }).catch(()=>{}); } catch(e) {}
@@ -2757,6 +2761,7 @@ function App() {
     saveSettings({aiProvider:provider, geminiKey:gkey});
   }
   function saveTasters(arr) { setTasters(arr); saveSettings({tasters:arr}); }
+  function saveModel(m){ setGeminiModelState(m); setAIModel(m); saveSettings({geminiModel:m}); }
   function saveSettings(patch) {
     try {
       window.storage.get("wine-cellar-settings").then(r=>{
@@ -2832,7 +2837,7 @@ function App() {
     const sleep = ms=>new Promise(r=>setTimeout(r,ms));
     for(let i=0;i<targets.length;i++){
       try{
-        const ch = await computeEnrich(targets[i], wines, true); // lite=병당 1호출
+        const ch = await computeEnrich(targets[i], wines, true, "gemini-2.5-flash-lite"); // lite=병당 1호출, 일괄은 최저가 모델
         if(ch) editWine(targets[i].id, ch);
       }catch(e){
         const msg = String(e&&e.message||"");
@@ -2931,6 +2936,25 @@ function App() {
                   style={{width:"100%",border:"1px solid #ddd",borderRadius:6,padding:"7px 10px",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
                 <div style={{fontSize:11,color:"#aaa",marginTop:4}}>
                   무료 발급: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" style={{color:"#4285F4"}}>aistudio.google.com/apikey</a> — 카드 불필요, 하루 1,500회 무료
+                </div>
+
+                {/* 모델 선택 */}
+                <div style={{marginTop:14}}>
+                  <div style={{fontSize:11,fontWeight:600,color:"#888",marginBottom:6}}>AI 모델 (품질 ↔ 비용)</div>
+                  <div style={{display:"flex",gap:6,marginBottom:6}}>
+                    {[["gemini-2.5-flash-lite","절약","최저가·일괄용"],["gemini-2.5-flash","균형","추천"],["gemini-2.5-pro","고품질","유료·정밀"]].map(([m,label,desc])=>(
+                      <button key={m} onClick={()=>saveModel(m)}
+                        style={{flex:1,padding:"8px 4px",border:`1px solid ${geminiModelState===m?RED:"#ddd"}`,borderRadius:8,background:geminiModelState===m?"#FDF1F2":"#fff",cursor:"pointer"}}>
+                        <div style={{fontSize:12,fontWeight:geminiModelState===m?700:500,color:geminiModelState===m?RED:"#555"}}>{label}</div>
+                        <div style={{fontSize:9,color:"#aaa",marginTop:1}}>{desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <input value={geminiModelState} onChange={e=>saveModel(e.target.value)}
+                    style={{width:"100%",border:"1px solid #eee",borderRadius:6,padding:"6px 9px",fontSize:11,color:"#888",outline:"none",boxSizing:"border-box"}}/>
+                  <div style={{fontSize:10,color:"#bbb",marginTop:4,lineHeight:1.5}}>
+                    무료 등급은 Flash·Flash-Lite만 됩니다. Pro 및 3.x(예: gemini-3-flash, gemini-3.1-pro-preview)는 결제 등록 후 위 칸에 직접 입력해 사용하세요. 일괄 채우기는 비용 절감을 위해 항상 Flash-Lite로 처리됩니다.
+                  </div>
                 </div>
               </div>
             )}
