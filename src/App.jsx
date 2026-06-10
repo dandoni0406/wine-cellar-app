@@ -880,10 +880,7 @@ function WCard({ wine, nc, onClick, extra }) {
   const hasDetail=!!(wine.terroir?.soilType||wine.producerInfo?.history||wine.wineInsights);
   const isBord = wine.isBordeaux||["Bordeaux","보르도"].some(r=>(wine.region||"").includes(r));
   const avg = avgScore(wine);
-  const topC = isBurg&&rat.bh ? {v:rat.bh,ab:"BH",isTop:true}
-    : isBord&&rat.wa ? {v:rat.wa,ab:"WA",isTop:true}
-    : avg ? {v:avg.avg,ab:`avg/${avg.count}`,isTop:false}
-    : (CRITICS.find(c=>rat[c.k]) ? {v:rat[CRITICS.find(c=>rat[c.k]).k],ab:CRITICS.find(c=>rat[c.k]).ab,isTop:true} : null);
+  const topC = avg ? {v:avg.avg, ab: avg.count>1?`avg/${avg.count}`:"점수", isTop:false} : null;
   const isBord2 = wine.isBordeaux||["Bordeaux","보르도"].some(r=>(wine.region||"").includes(r));
   const dn = cleanName(wine.nameKR||wine.nameEN, wine.vintage);
   const isConsumed = wine.status==="Consumed";
@@ -896,7 +893,7 @@ function WCard({ wine, nc, onClick, extra }) {
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:5,flexWrap:"wrap"}}>
               <span style={{fontSize:17}}>{TICON[wine.wineType]||"🍾"}</span>
-              <span style={{fontWeight:600,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:160}}>{dn}</span>
+              <span style={{fontWeight:600,fontSize:14,wordBreak:"break-word",flex:1,minWidth:0}}>{dn}</span>
               {wine.vintage && (<span style={{fontSize:13,color:GOLD,fontWeight:700}}>{wine.vintage}</span>)}
               {isConsumed && (<span style={{fontSize:11,background:"#f5f2ee",color:"#888",padding:"1px 7px",borderRadius:4}}>마심</span>)}
             </div>
@@ -1342,7 +1339,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
   }
   const [insights, setInsights] = useState(wine.wineInsights||null);
   const [loadingInsights, setLoadingInsights] = useState(false);
-  const [subtab, setSubtab] = useState((hasData(wine.terroir)||hasData(wine.producerInfo)||wine.wineInsights) ? "detail" : "info");
+  const [subtab, setSubtab] = useState("detail");
 
   async function doLoadInsights(){
     setLoadingInsights(true);
@@ -1470,7 +1467,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
             {/* ── 내부 탭 ── */}
             <div style={{display:"flex",gap:4,position:"sticky",top:0,zIndex:5,background:"#F7F4F0",padding:"6px 0",marginBottom:4}}>
-              {[["info","정보"],["detail","상세"],["taste","시음"],["tips","팁"]].map(([k,l])=>(
+              {[["detail","상세"],["taste","시음"],["tips","팁"]].map(([k,l])=>(
                 <button key={k} onClick={()=>setSubtab(k)}
                   style={{flex:1,padding:"8px 2px",fontSize:13,fontWeight:subtab===k?700:500,borderRadius:8,cursor:"pointer",border:"none",background:subtab===k?RED:"#fff",color:subtab===k?"#fff":"#888",boxShadow:subtab===k?"none":"0 1px 2px rgba(0,0,0,.04)"}}>
                   {l}
@@ -1479,7 +1476,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             </div>
 
             {/* ── Expert Ratings ── */}
-            {subtab==="info" && hasR && (
+            {subtab==="detail" && hasR && (
               <div style={CS}>
                 <SH>🏅 전문가 평점</SH>
 
@@ -1756,7 +1753,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Label Photo ── */}
-            {subtab==="info" && (<div style={CS}><SH>📷 라벨 사진</SH><LabelPhoto photo={wine.labelPhoto} photoId={wine.labelPhotoId} onUpload={id=>onUpdate({labelPhotoId:id,labelPhoto:""})}/></div>)}
+            {subtab==="detail" && (<div style={CS}><SH>📷 라벨 사진</SH><LabelPhoto photo={wine.labelPhoto} photoId={wine.labelPhotoId} onUpload={id=>onUpdate({labelPhotoId:id,labelPhoto:""})}/></div>)}
 
             {/* ── Recommendations ── */}
             {subtab==="tips" && reco && reco.items && reco.items.length>0 && (
@@ -1782,7 +1779,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
 
             {/* ── Purchase ── */}
-            {subtab==="info" && wine.type==="cellar"&&(wine.purchaseDate||wine.purchasePrice||wine.location) && (
+            {subtab==="detail" && wine.type==="cellar"&&(wine.purchaseDate||wine.purchasePrice||wine.location) && (
               <div style={CS}>
                 <SH>🛒 구매 정보</SH>
                 <DR label="구매일" val={wine.purchaseDate}/><DR label="구매처" val={wine.shop}/>
