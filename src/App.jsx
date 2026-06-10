@@ -1467,7 +1467,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
             {/* ── 내부 탭 ── */}
             <div style={{display:"flex",gap:4,position:"sticky",top:0,zIndex:5,background:"#F7F4F0",padding:"6px 0",marginBottom:4}}>
-              {[["detail","상세"],["taste","시음"],["tips","팁"]].map(([k,l])=>(
+              {[["detail","상세"],["taste","시음노트"],["tips","팁"]].map(([k,l])=>(
                 <button key={k} onClick={()=>setSubtab(k)}
                   style={{flex:1,padding:"8px 2px",fontSize:13,fontWeight:subtab===k?700:500,borderRadius:8,cursor:"pointer",border:"none",background:subtab===k?RED:"#fff",color:subtab===k?"#fff":"#888",boxShadow:subtab===k?"none":"0 1px 2px rgba(0,0,0,.04)"}}>
                   {l}
