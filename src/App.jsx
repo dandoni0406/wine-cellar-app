@@ -1933,6 +1933,7 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"],
   const [notePhotoId, setNotePhotoId] = useState(E.notePhotoId||""); // 시음 순간 사진
   const [sessionSaved, setSessionSaved] = useState(false); // 이 시음에서 이미 1병 차감했는지
   const [justSaved, setJustSaved] = useState("");           // 방금 저장된 작성자(확인 메시지)
+  const [editActive, setEditActive] = useState(!!editNote); // 현재 저장이 기존 노트 수정인지(이어쓰기 넘어가면 해제)
   const [meta, sm2] = useState({date:E.date||new Date().toISOString().split("T")[0],location:E.location||"",withWhom:E.withWhom||"",foodPairing:E.foodPairing||"",decanting:E.decanting||""});
   const um = k => e => sm2(p=>({...p,[k]:e.target.value}));
   const wName = mode==="cellar" ? (sel?.nameKR||sel?.nameEN||"") : ((corrected?.nameKR||corrected?.nameEN)||en);
@@ -1976,7 +1977,7 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"],
   const scanRef = useRef(null);
   function buildNote(){
     return {
-      ...(editNote?{id:editNote.id, createdAt:editNote.createdAt}:{}),
+      ...(editActive?{id:editNote.id, createdAt:editNote.createdAt}:{}),
       wineId:mode==="cellar"?sel?.id:null,
       wineName:cleanName(wName,wVin),
       vintage:wVin,
@@ -1998,6 +1999,7 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"],
     const cur = taster||tasters[0]||"나";
     onSave(buildNote(), {stay:true, skipQty:sessionSaved}); // 첫 저장만 수량 차감
     setSessionSaved(true);
+    setEditActive(false); // 다음 사람부터는 새 노트로 추가
     setJustSaved(cur);
     // 다음 작성자로 전환
     const others = tasters.filter(Boolean).filter(t=>t!==cur);
@@ -2231,12 +2233,12 @@ function AddTastingPage({ wine, wines, onSave, onBack, tasters=["나","아내"],
           </div>
         )}
         <PB onClick={doSave} disabled={!canSave} full>
-          💾 {editNote?"시음노트 수정 저장":"시음노트 저장"}
+          💾 {editActive?"시음노트 수정 저장":"시음노트 저장"}
         </PB>
-        {!editNote && tasters.filter(Boolean).length>1 && (
+        {tasters.filter(Boolean).length>1 && (
           <button onClick={doSaveContinue} disabled={!canSave}
             style={{width:"100%",marginTop:10,padding:"12px",background:"#fff",color:RED,border:`1px solid ${RED}`,borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",opacity:canSave?1:0.5}}>
-            💾 저장하고 다른 사람 노트 이어쓰기
+            💾 {editActive?"수정 저장하고 다른 사람 노트 추가":"저장하고 다른 사람 노트 이어쓰기"}
           </button>
         )}
       </Pg>
