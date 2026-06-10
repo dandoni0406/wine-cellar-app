@@ -880,7 +880,7 @@ function WCard({ wine, nc, onClick, extra }) {
   const hasDetail=!!(wine.terroir?.soilType||wine.producerInfo?.history||wine.wineInsights);
   const isBord = wine.isBordeaux||["Bordeaux","보르도"].some(r=>(wine.region||"").includes(r));
   const avg = avgScore(wine);
-  const topC = avg ? {v:avg.avg, ab: avg.count>1?`avg/${avg.count}`:"점수", isTop:false} : null;
+  const topC = avg ? {v:avg.avg, ab:"avg"} : null;
   const isBord2 = wine.isBordeaux||["Bordeaux","보르도"].some(r=>(wine.region||"").includes(r));
   const dn = cleanName(wine.nameKR||wine.nameEN, wine.vintage);
   const isConsumed = wine.status==="Consumed";
@@ -907,9 +907,9 @@ function WCard({ wine, nc, onClick, extra }) {
           </div>
         </div>
         {topC && (
-          <div style={{textAlign:"center",background:isBurg&&topC.ab==="BH"?"#FBF4E4":"#f9f7f5",borderRadius:10,padding:"10px 14px",marginLeft:12,flexShrink:0}}>
+          <div style={{textAlign:"center",background:"#f9f7f5",borderRadius:10,padding:"10px 14px",marginLeft:12,flexShrink:0}}>
             <div style={{fontSize:22,fontWeight:700,color:GOLD,lineHeight:1}}>{topC.v}</div>
-            <div style={{fontSize:10,fontWeight:700,color:GOLD,marginTop:2}}>{topC.ab}</div>
+            <div style={{fontSize:10,fontWeight:600,color:"#bbb",marginTop:2}}>{topC.ab}</div>
           </div>
         )}
       </div>
