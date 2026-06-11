@@ -1087,8 +1087,12 @@ function TastingTab({ notes, wines, onNav }) {
         const w = wines.find(x=>x.id===note.wineId);
         return (
           <div key={note.id} onClick={()=>onNav("note",{note})} style={{...CS,cursor:"pointer"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-              <div style={{flex:1}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10}}>
+              {(note.notePhotoId || w?.labelPhoto || w?.labelPhotoId) && (
+                <WineImg photo={w?.labelPhoto} photoId={note.notePhotoId || w?.labelPhotoId}
+                  style={{width:46,height:60,objectFit:"cover",borderRadius:6,flexShrink:0}}/>
+              )}
+              <div style={{flex:1,minWidth:0}}>
                 <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:5,flexWrap:"wrap"}}>
                   <span>{TICON[w?.wineType]||"🍾"}</span>
                   <span style={{fontWeight:600,fontSize:14}}>{cleanName(note.wineName,note.vintage)}</span>
@@ -1098,7 +1102,7 @@ function TastingTab({ notes, wines, onNav }) {
                 <div style={{fontSize:12,color:"#888",marginBottom:note.overallImpression?4:0}}>{note.date}{note.location?` · ${note.location}`:""}</div>
                 {note.overallImpression && (<div style={{fontSize:12,color:"#666",lineHeight:1.5}}>{note.overallImpression.slice(0,90)}…</div>)}
               </div>
-              {note.rating && (<div style={{fontSize:22,fontWeight:700,color:GOLD,flexShrink:0,marginLeft:12}}>{note.rating}</div>)}
+              {note.rating && (<div style={{fontSize:22,fontWeight:700,color:GOLD,flexShrink:0,marginLeft:4}}>{note.rating}</div>)}
             </div>
           </div>
         );
