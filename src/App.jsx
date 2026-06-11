@@ -353,7 +353,7 @@ JSON 배열만 반환, 다른 텍스트 없이.`,12000,true);
 // Basic lookup — simple flat JSON, very reliable
 const lookupWine = (name, v) => aiJson(
 `당신은 WSET Diploma를 보유한 마스터 소믈리에다. 정확성에 자부심이 있어 틀린 정보 대신 빈칸을 남긴다.
-와인 "${name}"${v?` (${v}빈티지)`:""}의 기본 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만. nameKR/nameEN에 빈티지 포함 금지. 부르고뉴면 isBurgundy=true, 보르도면 isBordeaux=true.
+와인 "${name}"${v?` (${v}빈티지)`:""}의 기본 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만. nameKR/nameEN에 빈티지 포함 금지. 모든 서술(description 등)은 '~이다' 평서체로 작성(존댓말 금지). 부르고뉴면 isBurgundy=true, 보르도면 isBordeaux=true.
 먼저 국가→지역→생산자를 확정한 뒤 나머지를 채울 것. (예: "Beaune/본"은 프랑스 부르고뉴이지 독일 Bonn이 아님)
 추측은 치명적 오류다. 확신 80% 미만 항목은 반드시 빈 문자열로 둘 것.
 사용자 입력 한글명은 부정확할 수 있으니 nameKR은 정확한 공식 한글 표기로 교정 (예: "샤또딸보"→"샤토 탈보", "본로마네"→"본 로마네").
@@ -417,6 +417,7 @@ ${known?`<known_facts>\n이미 확인된 정보(반드시 이와 모순되지 �
 2. 한글 표기 교정: 사용자 입력이 부정확해도 nameKR은 공식적이고 세련된 한글 명칭으로 교정한다. (예: "샤또딸보"→"샤토 탈보") nameKR/nameEN에 빈티지 숫자 포함 금지.
 3. 전문가 평점/노트: expertRatings는 실제 확인된 숫자만, 없으면 "". expertNotes는 실제 존재하는 평론가만 포함하고, 면책 문구 없이 우아한 한국어 와인 용어로 번역한다.
 4. JSON만: 마크다운 펜스/설명 없이 순수 JSON만 반환한다.
+5. 문체: 모든 서술형 텍스트는 '~이다/~한다' 평서체(문어체)로 작성한다. 존댓말(~입니다/~습니다/~세요) 금지.
 </rules>
 
 <example>
@@ -457,6 +458,7 @@ ${known?`<known_facts>\n${known}\n</known_facts>`:""}
 2. 먼저 _reasoning에서 이 와인의 국가·지역·생산자·품종·등급을 팩트체크한 뒤 작성한다. ("Beaune/본"은 프랑스 부르고뉴이지 독일이 아님)
 3. 구체적이고 전문적으로. "좋은 와인이다" 같은 공허한 표현 대신, 왜 그런지 메커니즘과 근거를 든다.
 4. 마크다운 없이 순수 JSON만.
+5. 문체: 모든 서술형 텍스트는 '~이다/~한다' 평서체(문어체)로 작성한다. 존댓말(~입니다/~습니다/~세요) 금지.
 </rules>
 
 {
@@ -481,7 +483,7 @@ ${known?`<known_facts>\n${known}\n</known_facts>`:""}
 const lookupRatings = (name, v, model) => aiJson(
 `당신은 와인 평론 데이터 전문가다. 와인 "${name}"${v?` (${v}빈티지)`:""}에 대해 주요 평론가가 매긴 실제 점수와 시음노트만 JSON으로 반환. 마크다운 없이 순수 JSON만.
 실제로 확인된 점수만 입력하고, 모르는 평론가는 빈 문자열/배열로 둘 것. 절대 점수를 지어내지 말 것(틀린 점수는 치명적 오류).
-expertNotes의 note는 자연스러운 한국어로 번역. 면책 문구 금지.
+expertNotes의 note는 자연스러운 한국어 평서체('~이다')로 번역. 존댓말·면책 문구 금지.
 {"expertRatings":{"bh":"Burghound 점수숫자","ws":"Wine Spectator","wa":"Wine Advocate","vinous":"Vinous","js":"James Suckling","jr":"Jancis Robinson(20점만점)","dec":"Decanter","jm":"Jasper Morris"},"expertNotes":[{"critic":"평론가명","score":"점수","note":"한국어 번역","year":""}]}`,
   2500, model);
 
@@ -544,7 +546,7 @@ const _chipByName = (name, groups) => {
 };
 const structNote = (txt, wine) => aiJson(`"${wine}" 시음 자유서술을 분석해 WSET 지표로 정리. 메모에 실제 나타난 것만, 없으면 빈 문자열/빈 배열. 마크다운 없이 순수 JSON만.
 서술:"${txt}"
-{"color":"","noseIntensity":"약함|중간-|중간|중간+|강함","sweetness":"완전 드라이|드라이|살짝 단맛|반건조|중간 단맛|스위트|매우 달콤","acidity":"낮음|중간-|중간|중간+|높음","tannin":"거의 없음|부드러움|중간|뻑뻑함|매우 강함","alcohol":"낮음|중간|높음|주정강화","body":"가벼움|다소 가벼움|중간|다소 무거움|풀 바디","finish":"짧음|약간 짧음|중간|약간 김|김","aromas":[],"flavors":[],"overallImpression":"서술을 다듬은 총평 2-3문장","rating":"숫자만(서술에 점수 언급 있을때만)","repurchase":"예|보통|아니오"}
+{"color":"","noseIntensity":"약함|중간-|중간|중간+|강함","sweetness":"완전 드라이|드라이|살짝 단맛|반건조|중간 단맛|스위트|매우 달콤","acidity":"낮음|중간-|중간|중간+|높음","tannin":"거의 없음|부드러움|중간|뻑뻑함|매우 강함","alcohol":"낮음|중간|높음|주정강화","body":"가벼움|다소 가벼움|중간|다소 무거움|풀 바디","finish":"짧음|약간 짧음|중간|약간 김|김","aromas":[],"flavors":[],"overallImpression":"서술을 다듬은 총평 2-3문장(평서체 ~이다, 존댓말 금지)","rating":"숫자만(서술에 점수 언급 있을때만)","repurchase":"예|보통|아니오"}
 aromas는 서술에 언급된 향만 아래 목록에서 정확히 골라 배열로: ${_aromaNames.join(", ")}
 flavors는 서술에 언급된 풍미·질감만 아래 목록에서 정확히 골라 배열로: ${_flavorNames.join(", ")}`);
 
@@ -567,6 +569,7 @@ ${hasRef?`[전문가·공식 시음노트]\n${refs.join("\n")}`:`[참고 노트 
 - 차이가 나는 이유를 합리적으로 추정한다(디캔팅·서빙온도·빈티지/보관 상태·잔·개인 미각 민감도·표현 어휘 차이 등). 단정 대신 가능성으로 제시.
 - 사실 아닌 내용 지어내기 금지. 기준 노트가 없으면 전형적 프로파일 기준임을 전제로.
 - 마크다운 없이 순수 JSON만.
+- 문체: 모든 서술은 '~이다/~한다' 평서체로. 존댓말 금지.
 </rules>
 {"summary":"내 평가가 전반적으로 얼마나 일치하는지 1-2문장","agreements":["일치한 포인트1","포인트2"],"differences":[{"aspect":"항목(예: 타닌)","mine":"내가 느낀 것","reference":"전문가/전형","why":"차이가 날 수 있는 이유"}],"learningPoint":"이 비교로 배울 점·다음에 주목할 포인트 1-2문장","hasReference":${hasRef}}`);
 };
