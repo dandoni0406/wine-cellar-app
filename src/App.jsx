@@ -481,10 +481,11 @@ ${known?`<known_facts>\n${known}\n</known_facts>`:""}
 // 와인 1병 AI 채우기 핵심 로직 — 변경할 필드 객체 반환 (doEnrich와 일괄처리가 공유)
 // 전문가 평점·노트 전용 보강 (가벼운 호출 — 평점이 비었을 때 Pro로 메움)
 const lookupRatings = (name, v, model) => aiJson(
-`당신은 와인 평론 데이터 전문가다. 와인 "${name}"${v?` (${v}빈티지)`:""}에 대해 주요 평론가가 매긴 실제 점수와 시음노트만 JSON으로 반환. 마크다운 없이 순수 JSON만.
+`당신은 와인 평론·산지 데이터 전문가다. 와인 "${name}"${v?` (${v}빈티지)`:""}에 대해 주요 평론가 점수·시음노트와 포도밭 좌표를 JSON으로 반환. 마크다운 없이 순수 JSON만.
 실제로 확인된 점수만 입력하고, 모르는 평론가는 빈 문자열/배열로 둘 것. 절대 점수를 지어내지 말 것(틀린 점수는 치명적 오류).
 expertNotes의 note는 자연스러운 한국어 평서체('~이다')로 번역. 존댓말·면책 문구 금지.
-{"expertRatings":{"bh":"Burghound 점수숫자","ws":"Wine Spectator","wa":"Wine Advocate","vinous":"Vinous","js":"James Suckling","jr":"Jancis Robinson(20점만점)","dec":"Decanter","jm":"Jasper Morris"},"expertNotes":[{"critic":"평론가명","score":"점수","note":"한국어 번역","year":""}]}`,
+좌표: 먼저 국가→지역→마을→포도밭 순으로 정확히 확정한 뒤(예: "Beaune/본"은 프랑스 부르고뉴이지 독일 아님) vineyardLat/Lon을 소수로 채운다. 정확한 밭을 모르면 마을·지역의 대략 좌표라도 채운다. zoom은 밭 14~15·마을 12·지역 9.
+{"expertRatings":{"bh":"Burghound 점수숫자","ws":"Wine Spectator","wa":"Wine Advocate","vinous":"Vinous","js":"James Suckling","jr":"Jancis Robinson(20점만점)","dec":"Decanter","jm":"Jasper Morris"},"expertNotes":[{"critic":"평론가명","score":"점수","note":"한국어 번역","year":""}],"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"밭 위치 한 줄"}`,
   2500, model);
 
 async function computeEnrich(wine, cellarWines, lite=false, model){
@@ -496,10 +497,12 @@ async function computeEnrich(wine, cellarWines, lite=false, model){
   const notes = flat.expertNotes?.length ? flat.expertNotes : (wine.expertNotes||[]);
   let mergedRat = syncRatings(notes, {...(wine.expertRatings||{}), ...(flat.expertRatings||{})});
   let finalNotes = notes;
-  // 평점 보강: 기본 모델이 Pro가 아니고, 평점이 비어있고, 보강이 켜져 있으면 Pro로 평점만 추가 조회
+  let coordBoost = null; // 보강으로 받은 좌표
+  // 보강: 기본 모델이 Pro가 아니고, (평점 OR 좌표)가 비어있고, 보강 켜짐이면 Pro로 추가 조회
   const usedModel = model || _aiModel;
   const ratingsEmpty = Object.values(mergedRat).filter(x=>x&&String(x).trim()).length === 0;
-  if(_ratingBoost && ratingsEmpty && !usedModel.includes("pro") && !lite){
+  const coordsEmpty = !((flat.vineyardLat||wine.vineyardLat) && (flat.vineyardLon||wine.vineyardLon));
+  if(_ratingBoost && (ratingsEmpty || coordsEmpty) && !usedModel.includes("pro") && !lite){
     try{
       const rb = await lookupRatings(name, v, _ratingModel);
       const cleanRb = {};
@@ -507,6 +510,9 @@ async function computeEnrich(wine, cellarWines, lite=false, model){
       const rbNotes = rb.expertNotes?.length ? rb.expertNotes.filter(n=>n.note && !isDisclaimerNote(n.note)) : [];
       if(rbNotes.length && !finalNotes.length) finalNotes = rbNotes;
       mergedRat = syncRatings(finalNotes.length?finalNotes:rbNotes, {...mergedRat, ...cleanRb});
+      if(coordsEmpty && rb.vineyardLat && rb.vineyardLon){
+        coordBoost = {vineyardLat:rb.vineyardLat, vineyardLon:rb.vineyardLon, vineyardZoom:rb.vineyardZoom||"13", ...(rb.mapNotes?{mapNotes:rb.mapNotes}:{})};
+      }
     }catch(e){}
   }
   let insights = null, rec = null;
@@ -531,6 +537,7 @@ async function computeEnrich(wine, cellarWines, lite=false, model){
     vintageInfo: {...(wine.vintageInfo||{}), ...(flat.vintageInfo||{})},
     winemaking: {...(wine.winemaking||{}), ...(flat.winemaking||{})},
     expertNotes: finalNotes.filter(n=>!isDisclaimerNote(n.note)),
+    ...(coordBoost||{}),
     ...(insights?{wineInsights:insights}:{}),
     ...(rec?{recommendations:rec}:{}),
   };
@@ -3085,8 +3092,8 @@ function App() {
                   <label style={{display:"flex",alignItems:"flex-start",gap:8,marginTop:12,cursor:"pointer"}}>
                     <input type="checkbox" checked={ratingBoostState} onChange={e=>saveRatingBoost(e.target.checked)} style={{marginTop:2}}/>
                     <span>
-                      <span style={{fontSize:12,fontWeight:600,color:"#555"}}>전문가 평점 Pro 보강</span>
-                      <span style={{display:"block",fontSize:10,color:"#aaa",marginTop:2,lineHeight:1.5}}>기본 모델(Flash)이 평점을 못 채우면 Pro로 평점만 한 번 더 조회합니다. 평점 누락을 크게 줄이며, 평점 전용이라 비용은 미미합니다. (기본 모델이 이미 Pro면 동작 안 함 · 결제 등록 필요)</span>
+                      <span style={{fontSize:12,fontWeight:600,color:"#555"}}>전문가 평점·지도 Pro 보강</span>
+                      <span style={{display:"block",fontSize:10,color:"#aaa",marginTop:2,lineHeight:1.5}}>기본 모델(Flash)이 전문가 평점이나 포도밭 좌표를 못 채우면 Pro로 한 번 더 조회해 보강합니다. 평점·좌표를 한 호출에 함께 받아 추가 비용은 미미합니다. (기본 모델이 이미 Pro면 동작 안 함 · 결제 등록 필요)</span>
                     </span>
                   </label>
                 </div>
