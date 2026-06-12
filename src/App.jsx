@@ -307,7 +307,7 @@ async function callGeminiVision(prompt, dataUrl, tokens){
   const mm=(dataUrl||"").match(/^data:(image\/[\w+]+);base64,(.+)$/);
   const mime=mm?.[1]||"image/jpeg", b64=mm?.[2]||"";
   if(!b64) throw new Error("이미지 데이터를 읽지 못했습니다");
-  const url=`https://generativelanguage.googleapis.com/v1beta/models/${_aiModel||"gemini-2.5-flash"}:generateContent?key=${apiKey}`;
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
   const body=JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:mime,data:b64}}]}],
       generationConfig:{maxOutputTokens:Math.max(tokens||1500,4000),temperature:0.1,thinkingConfig:{thinkingBudget:0},responseMimeType:"application/json"}});
   const sleep=ms=>new Promise(res=>setTimeout(res,ms));
@@ -356,7 +356,7 @@ const lookupWine = (name, v) => aiJson(
 와인 "${name}"${v?` (${v}빈티지)`:""}의 기본 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만. nameKR/nameEN에 빈티지 포함 금지. 모든 서술(description 등)은 '~이다' 평서체로 작성(존댓말 금지). 부르고뉴면 isBurgundy=true, 보르도면 isBordeaux=true.
 먼저 국가→지역→생산자를 확정한 뒤 나머지를 채울 것. (예: "Beaune/본"은 프랑스 부르고뉴이지 독일 Bonn이 아님)
 추측은 치명적 오류다. 확신 80% 미만 항목은 반드시 빈 문자열로 둘 것.
-사용자 입력 한글명은 부정확할 수 있으니 nameKR은 정확한 공식 한글 표기로 교정 (예: "샤또딸보"→"샤토 탈보", "본로마네"→"본 로마네").
+사용자 입력이 영어든 한글이든, nameKR은 반드시 한국어(한글)로 채운다. 영어를 그대로 두지 말 것 (예: "Chateau Talbot"→"샤토 탈보", "Domaine Dujac"→"도멘 뒤작"). 입력 한글이 부정확하면 정확한 공식 한글 표기로 교정 (예: "샤또딸보"→"샤토 탈보", "본로마네"→"본 로마네"). nameEN에는 영문 정식 표기를 넣는다.
 {"nameKR":"한국어와인명","nameEN":"English name","producer":"생산자","country":"국가","region":"지역","subRegion":"세부지역","vineyard":"포도밭","classification":"등급","grapeVariety":"포도품종","wineType":"Red","drinkFrom":"시작연도숫자","drinkUntil":"종료연도숫자","description":"3문장 한국어 설명","isBurgundy":false,"isBordeaux":false,"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"밭위치설명","expertRatings":{"bh":"","ws":"","wa":"","vinous":"","js":"","jr":"","dec":"","jm":""}}
 중요: expertRatings 각 필드는 실제 점수 숫자(예: 92)가 확인된 경우에만 입력. 없으면 반드시 빈 문자열 "" — 절대 설명 텍스트 금지.`, 2000
 );
@@ -406,6 +406,7 @@ const enrichAll = (name, v, anchor, model) => {
   return aiJson(
 `<role>
 당신은 WSET 디플로마 소지자이자 Burghound(앨런 미도우즈)와 Wine Advocate 수준의 분석력과 엄격함을 갖춘 최상위 와인 전문가다. 정확성에 직업적 자부심이 있어, 틀린 정보를 적느니 빈칸을 남긴다.
+[필수 문체] 모든 서술형 텍스트(description, terroir/producerInfo/vintageInfo의 문장 등)는 예외 없이 '~이다/~한다'의 평서체(문어체)로 쓴다. 존댓말(~입니다/~습니다/~네요/~세요)은 절대 쓰지 않는다.
 </role>
 
 <task>
@@ -414,10 +415,10 @@ const enrichAll = (name, v, anchor, model) => {
 ${known?`<known_facts>\n이미 확인된 정보(반드시 이와 모순되지 않게, 이 범위 안에서 작성):\n${known}\n</known_facts>`:""}
 <rules>
 1. 추측 금지: 국가→지역(AOC/AVA)→생산자→포도밭 순으로 교차 검증한다. (예: "Beaune/본"은 프랑스 부르고뉴이지 독일 Bonn이 아니다.) 확신 80% 미만 항목은 반드시 빈 문자열("")로 남긴다. 추측은 치명적 오류로 간주한다.
-2. 한글 표기 교정: 사용자 입력이 부정확해도 nameKR은 공식적이고 세련된 한글 명칭으로 교정한다. (예: "샤또딸보"→"샤토 탈보") nameKR/nameEN에 빈티지 숫자 포함 금지.
-3. 전문가 평점/노트: expertRatings는 실제 확인된 숫자만, 없으면 "". expertNotes는 실제 존재하는 평론가만 포함하고, 면책 문구 없이 우아한 한국어 와인 용어로 번역한다.
+2. nameKR은 입력이 영어든 한글이든 반드시 한국어(한글) 공식 표기로 채운다. 영어를 그대로 두지 말 것 (예: "Domaine Dujac"→"도멘 뒤작", "Chateau Talbot"→"샤토 탈보", "샤또딸보"→"샤토 탈보"). nameEN에는 영문 정식 표기. nameKR/nameEN에 빈티지 숫자 포함 금지.
+3. 전문가 평점/노트: expertRatings는 실제 확인된 숫자만, 없으면 "". expertNotes는 실제 존재하는 평론가만 포함하고, 면책 문구 없이 한국어 평서체로 번역한다.
 4. JSON만: 마크다운 펜스/설명 없이 순수 JSON만 반환한다.
-5. 문체: 모든 서술형 텍스트는 '~이다/~한다' 평서체(문어체)로 작성한다. 존댓말(~입니다/~습니다/~세요) 금지.
+5. 문체: 모든 서술형 텍스트는 '~이다/~한다' 평서체로 작성한다. 존댓말 금지(위 [필수 문체] 재확인).
 </rules>
 
 <example>
@@ -447,6 +448,7 @@ const deepInsights = (name, v, anchor, model) => {
   return aiJson(
 `<role>
 당신은 WSET 디플로마 소지자이자 Burghound 수준의 분석력을 갖춘 와인 전문 작가다. 와인을 심층적으로 탐구하는 애호가를 위해, 검증된 사실에 기반해 깊이 있고 풍부하게 서술한다.
+[필수 문체] 모든 서술은 예외 없이 '~이다/~한다'의 평서체(문어체)로 쓴다. 존댓말(~입니다/~습니다/~네요/~세요)은 절대 쓰지 않는다.
 </role>
 
 <task>
