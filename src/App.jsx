@@ -1821,12 +1821,25 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
                 <FF label="한국어 이름" value={form.nameKR} onChange={upF("nameKR")}/><FF label="영문 이름" value={form.nameEN} onChange={upF("nameEN")}/>
                 <FF label="빈티지" value={form.vintage} onChange={upF("vintage")}/><FF label="생산자" value={form.producer} onChange={upF("producer")}/>
+                <div>
+                  <div style={{fontSize:11,fontWeight:600,color:"#888",letterSpacing:.5,marginBottom:6,textTransform:"uppercase"}}>종류</div>
+                  <select value={form.wineType||"Red"} onChange={upF("wineType")} style={IS}>
+                    {["Red","White","Rosé","Sparkling","Dessert","Fortified"].map(t=>(<option key={t} value={t}>{t}</option>))}
+                  </select>
+                </div>
+                <FF label="국가" value={form.country} onChange={upF("country")}/>
+                <FF label="지역" value={form.region} onChange={upF("region")}/><FF label="세부지역" value={form.subRegion} onChange={upF("subRegion")}/>
+                <FF label="포도밭" value={form.vineyard} onChange={upF("vineyard")}/><FF label="등급" value={form.classification} onChange={upF("classification")}/>
+                <FF label="포도품종" value={form.grapeVariety} onChange={upF("grapeVariety")}/>
                 <FF label="음용 From" value={form.drinkFrom} onChange={upF("drinkFrom")}/><FF label="음용 Until" value={form.drinkUntil} onChange={upF("drinkUntil")}/>
                 {wine.type==="cellar" && (<>
+                  <FF label="구매일" value={form.purchaseDate} onChange={upF("purchaseDate")} type="date"/>
+                  <FF label="구매처" value={form.shop} onChange={upF("shop")} placeholder="와인샵 등"/>
                   <FF label="구매가" value={form.purchasePrice} onChange={upF("purchasePrice")} type="number"/>
                   <FF label="시장가" value={form.marketPrice} onChange={upF("marketPrice")} type="number"/>
-                  <FF label="보관위치" value={form.location} onChange={upF("location")}/>
+                  <FF label="병 크기" value={form.bottleSize} onChange={upF("bottleSize")} placeholder="750ml"/>
                   <FF label="수량" value={form.quantity} onChange={upF("quantity")} type="number"/>
+                  <FF label="보관위치" value={form.location} onChange={upF("location")} placeholder="거실, 창고방 등"/>
                 </>)}
               </div>
             </div>
