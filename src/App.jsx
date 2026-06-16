@@ -230,14 +230,15 @@ async function callGemini(prompt, apiKey, tokens, model){
   if(!isPro) genConfig.thinkingConfig = {thinkingBudget:0};  // Flash만 thinking 끔 (Pro는 thinking 필수라 끄지 않음)
   const body = JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:genConfig });
   const sleep = ms => new Promise(res=>setTimeout(res,ms));
+  const fetchTimeout = (u,opt,ms)=>{ const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms); return fetch(u,{...opt,signal:c.signal}).finally(()=>clearTimeout(t)); };
   // 503/500/일시 오류는 자동 재시도(최대 2회), 429 한도는 재시도 안 함
   let lastStatus = 0;
   for(let attempt=0; attempt<3; attempt++){
     if(attempt>0) await sleep(attempt*2000); // 2초, 4초 대기
     let r;
     try {
-      r = await fetch(url, { method:"POST", headers:{"Content-Type":"application/json"}, body });
-    } catch(netErr) { lastStatus="network"; continue; } // 네트워크 일시 오류 → 재시도
+      r = await fetchTimeout(url, { method:"POST", headers:{"Content-Type":"application/json"}, body }, 60000);
+    } catch(netErr) { lastStatus="network"; continue; } // 네트워크 오류/타임아웃 → 재시도
     if(r.ok){
       const data = await r.json();
       if(data.error){ aiNotify("error"); throw new Error(data.error.message); }
@@ -311,10 +312,11 @@ async function callGeminiVision(prompt, dataUrl, tokens){
   const body=JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:mime,data:b64}}]}],
       generationConfig:{maxOutputTokens:Math.max(tokens||1500,4000),temperature:0.1,thinkingConfig:{thinkingBudget:0},responseMimeType:"application/json"}});
   const sleep=ms=>new Promise(res=>setTimeout(res,ms));
+  const fetchTimeout=(u,opt,ms)=>{ const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms); return fetch(u,{...opt,signal:c.signal}).finally(()=>clearTimeout(t)); };
   let r, lastStatus=0;
   for(let attempt=0; attempt<3; attempt++){
     if(attempt>0) await sleep(attempt*2000);
-    try { r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body}); }
+    try { r=await fetchTimeout(url,{method:"POST",headers:{"Content-Type":"application/json"},body},60000); }
     catch(netErr){ lastStatus="network"; continue; }
     if(r.ok) break;
     if(r.status===429) throw new Error("RATE_LIMIT 429");
