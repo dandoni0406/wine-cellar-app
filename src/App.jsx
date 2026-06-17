@@ -941,6 +941,7 @@ function CellarTab({ wines, notes, onNav, onBatchFill, batchState }) {
   const [countryFlt, setCF] = useState("all");
   const [typeFlt, setTF] = useState("all");
   const [aocFlt, setAF] = useState("all");
+  const [showFilters, setShowFilters] = useState(false);
   const [showConsumed, setShowConsumed] = useState(false);
   const [stockView, setStockView] = useState("instock"); // instock | consumed
 
@@ -1039,43 +1040,66 @@ function CellarTab({ wines, notes, onNav, onBatchFill, batchState }) {
       <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 이름, 생산자, 지역 검색..."
         style={{...IS,marginBottom:10,fontSize:13}}/>
 
-      {/* Drink status filter — In Stock only, no 마심 chip */}
-      {stockView==="instock" && <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
-        {[["all","전체"],["now","지금"],["urgent","긴급"],["past","피크지남"],["young","숙성중"]].map(([k,l])=>{
-          const cnt=k==="all"?inStock.length:inStock.filter(w=>getDrinkStatus(w.drinkFrom,w.drinkUntil)===k).length;
-          return <Chip key={k} v={k} cur={flt} set={sf} label={`${l}(${cnt})`}/>;
-        })}
-      </div>}
+      {/* 필터 토글 버튼 (재고 뷰만) — 평소엔 접힘 */}
+      {stockView==="instock" && (()=>{
+        const activeCount = (flt!=="all"?1:0)+(countryFlt!=="all"?1:0)+(typeFlt!=="all"?1:0)+(aocFlt!=="all"?1:0);
+        return (
+          <div style={{marginBottom:10}}>
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <button onClick={()=>setShowFilters(s=>!s)}
+                style={{display:"flex",alignItems:"center",gap:6,padding:"7px 14px",border:`1px solid ${activeCount?RED:"#ddd"}`,borderRadius:20,background:activeCount?"#FDF1F2":"#fff",color:activeCount?RED:"#666",fontSize:13,fontWeight:600,cursor:"pointer"}}>
+                🔍 필터{activeCount?` (${activeCount})`:""} <span style={{fontSize:11,color:"#aaa"}}>{showFilters?"▲":"▼"}</span>
+              </button>
+              {activeCount>0 && (
+                <button onClick={()=>{sf("all");setCF("all");setTF("all");setAF("all");}}
+                  style={{padding:"7px 12px",border:"none",borderRadius:20,background:"#f5f2ee",color:"#888",fontSize:12,cursor:"pointer"}}>초기화</button>
+              )}
+              <div style={{flex:1}}/>
+              <select value={sort} onChange={e=>setSort(e.target.value)} style={{fontSize:12,border:"1px solid #ddd",borderRadius:6,padding:"5px 8px",background:"#fff",color:"#555"}}>
+                <option value="newest">최근순</option>
+                <option value="urgent">음용적기순</option>
+                <option value="until">마감임박순</option>
+                <option value="vintage_desc">빈티지↓</option>
+                <option value="vintage_asc">빈티지↑</option>
+                <option value="name">이름순</option>
+              </select>
+            </div>
 
-      {/* Country + Type + AOC filter (재고 뷰만) */}
-      {stockView==="instock" && countries.length>1&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
-        <Chip v="all" cur={countryFlt} set={setCF} label="🌍 전체"/>
-        {countries.map(c=><Chip key={c} v={c} cur={countryFlt} set={setCF} label={c}/>)}
-      </div>}
-      {stockView==="instock" && types.length>1&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
-        <Chip v="all" cur={typeFlt} set={setTF} label="🍾 전체"/>
-        {types.map(t=><Chip key={t} v={t} cur={typeFlt} set={setTF} label={`${TICON[t]||"🍾"} ${t}`}/>)}
-      </div>}
-      {stockView==="instock" && (()=>{const aocs=[...new Set(inStock.map(w=>getAOC(w)))].sort();return aocs.length>1&&(
-        <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
-          <Chip v="all" cur={aocFlt} set={setAF} label="🌍 AOC 전체"/>
-          {aocs.map(a=><Chip key={a} v={a} cur={aocFlt} set={setAF} label={a}/>)}
-        </div>
-      );})()}
-
-      {/* Sort (재고 뷰만) */}
-      {stockView==="instock" && <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
-        <span style={{fontSize:11,color:"#aaa",flexShrink:0}}>정렬:</span>
-        <select value={sort} onChange={e=>setSort(e.target.value)} style={{fontSize:12,border:"1px solid #ddd",borderRadius:6,padding:"4px 8px",background:"#fff",color:"#555"}}>
-          <option value="newest">최근 추가순</option>
-          <option value="urgent">음용 적기순</option>
-          <option value="until">마감 임박순</option>
-          <option value="vintage_desc">빈티지 최신순</option>
-          <option value="vintage_asc">빈티지 오래된순</option>
-          <option value="name">이름순</option>
-        </select>
-        <span style={{fontSize:11,color:"#aaa"}}>{filtered.length}병</span>
-      </div>}
+            {showFilters && (
+              <div style={{marginTop:10,padding:"12px",background:"#fff",borderRadius:12,border:"1px solid #f0ece6"}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#bbb",marginBottom:5}}>음용 시기</div>
+                <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
+                  {[["all","전체"],["now","지금"],["urgent","긴급"],["past","피크지남"],["young","숙성중"]].map(([k,l])=>{
+                    const cnt=k==="all"?inStock.length:inStock.filter(w=>getDrinkStatus(w.drinkFrom,w.drinkUntil)===k).length;
+                    return <Chip key={k} v={k} cur={flt} set={sf} label={`${l}(${cnt})`}/>;
+                  })}
+                </div>
+                {countries.length>1 && (<>
+                  <div style={{fontSize:10,fontWeight:700,color:"#bbb",marginBottom:5}}>국가</div>
+                  <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
+                    <Chip v="all" cur={countryFlt} set={setCF} label="🌍 전체"/>
+                    {countries.map(c=><Chip key={c} v={c} cur={countryFlt} set={setCF} label={c}/>)}
+                  </div>
+                </>)}
+                {types.length>1 && (<>
+                  <div style={{fontSize:10,fontWeight:700,color:"#bbb",marginBottom:5}}>종류</div>
+                  <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
+                    <Chip v="all" cur={typeFlt} set={setTF} label="🍾 전체"/>
+                    {types.map(t=><Chip key={t} v={t} cur={typeFlt} set={setTF} label={`${TICON[t]||"🍾"} ${t}`}/>)}
+                  </div>
+                </>)}
+                {(()=>{const aocs=[...new Set(inStock.map(w=>getAOC(w)))].sort();return aocs.length>1&&(<>
+                  <div style={{fontSize:10,fontWeight:700,color:"#bbb",marginBottom:5}}>지역(AOC)</div>
+                  <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                    <Chip v="all" cur={aocFlt} set={setAF} label="🌍 전체"/>
+                    {aocs.map(a=><Chip key={a} v={a} cur={aocFlt} set={setAF} label={a}/>)}
+                  </div>
+                </>);})()}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* 와인 목록 */}
       {stockView==="consumed" ? (
