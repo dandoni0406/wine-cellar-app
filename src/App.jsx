@@ -112,7 +112,7 @@ function getAOC(wine) {
   if(all.includes("barolo")||all.includes("barbaresco")||all.includes("barbar")||
      all.includes("piedmont")||all.includes("piemonte")||all.includes("피에몬테")||
      ["langhe","alba","asti","gavi","barbera","dolcetto"].some(v=>all.includes(v)))
-    return "🌹 바롤로/피에몬테";
+    return "🌹 피에몬테";
   if(all.includes("tuscany")||all.includes("toscana")||all.includes("토스카나")||
      ["chianti","brunello","bolgheri","montalcino","super tuscan","vino nobile"].some(v=>all.includes(v)))
     return "🦅 토스카나";
@@ -377,7 +377,7 @@ gems: 덜 알려졌지만 가성비 좋거나 품질 뛰어난 와인 2-3개`, 1
 );
 // 내 셀러 안에서 비슷한 와인 추천 (외부 환각 방지)
 const recommendFromCellar = (wine, cellarWines, model) => {
-  const others = (cellarWines||[]).filter(w => w.id !== wine.id);
+  const others = (cellarWines||[]).filter(w => w.id !== wine.id && w.status !== "Consumed");
   if(others.length < 2) return Promise.resolve({ items:[], _few:true });
   const g1 = s => (s||"").split(/[,/·&]| 및 /)[0].trim().toLowerCase();
   const score = w => (w.wineType===wine.wineType?2:0)
@@ -398,7 +398,7 @@ const lookupWineInsights = (name, v) => aiJson(
 `와인 전문가 수준으로 "${name}"${v?` (${v}빈티지)`:""}에 대한 심화 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만.
 반드시 정확한 사실만 작성. 와인의 실제 국가·산지를 정확히 확인할 것. 확실하지 않은 항목은 빈 문자열로 두고 절대 추측하거나 지어내지 말 것.
 
-{"hierarchy":{"description":"이 와인이 생산자 라인업에서 차지하는 위치 설명 (예: VDP.Grosse Lage > VDP.Ortswein > VDP.Gutswein 중 해당 등급)","table":[{"rank":"①","name":"최상위 와인명","category":"VDP/AOC 분류"},{"rank":"②","name":"이 와인","category":"해당 등급","isCurrent":true},{"rank":"③","name":"기본 와인","category":"엔트리 등급"}]},"classificationKey":{"title":"알아야 할 핵심 코드/시스템","items":[{"code":"코드나 용어","meaning":"설명"}]},"essentialContext":"이 와인을 이해하기 위해 반드시 알아야 할 배경 지식 2-3문장. 생산 방식 특이사항, 지역 특성, 위계 체계 등","vintageCharacter":"${v||"해당 빈티지"}년 특성 — 기상 조건, 스타일, 숙성 가능성 2문장","criticalInsight":"이 와인만의 핵심 감상 포인트 또는 구별되는 특징 2문장","peakWindow":"최적 음용 시기 (예: 2028~2038, 지금도 가능)","decanting":"디캔팅 권장 여부 및 시간","servingTemp":"적정 서빙 온도","foodPairing":["최적 페어링 음식1","음식2","음식3"],"rarityNote":"희소성/생산량/시장 접근성","funFact":"알면 흥미로운 사실 1-2문장"}`, 2500
+{"hierarchy":{"description":"[특수한 경우에만 작성] 독일 VDP 등급·모노폴·특별한 리외디·생소한 등급 체계처럼 위계를 알아두면 도움되는 경우에만 채운다(형식 예: 최상위→이 와인(isCurrent:true)→엔트리). 일반적인 와인(보르도 샤토, 평범한 빌라주, 신대륙 등)은 반드시 table을 빈 배열 []로 둔다.","table":[]},"classificationKey":{"title":"알아야 할 핵심 코드/시스템","items":[{"code":"코드나 용어","meaning":"설명"}]},"essentialContext":"이 와인을 이해하기 위해 반드시 알아야 할 배경 지식 2-3문장. 생산 방식 특이사항, 지역 특성, 위계 체계 등","vintageCharacter":"${v||"해당 빈티지"}년 특성 — 기상 조건, 스타일, 숙성 가능성 2문장","criticalInsight":"이 와인만의 핵심 감상 포인트 또는 구별되는 특징 2문장","peakWindow":"최적 음용 시기 (예: 2028~2038, 지금도 가능)","decanting":"디캔팅 권장 여부 및 시간","servingTemp":"적정 서빙 온도","foodPairing":["최적 페어링 음식1","음식2","음식3"],"rarityNote":"희소성/생산량/시장 접근성","funFact":"알면 흥미로운 사실 1-2문장"}`, 2500
 );
 
 // 통합 채우기 — XML 구조 + _reasoning(내장 사고) + anchor(환각 방지)
@@ -472,7 +472,7 @@ ${known?`<known_facts>\n${known}\n</known_facts>`:""}
 "predictedPalate":"전문가 평가와 품종·산지·빈티지 특성을 종합해 예상되는 시음 프로파일을 4-6문장으로. 외관→향(1·2·3차)→입안(당도·산도·타닌·바디)→여운 순으로 구체적으로.",
 "stories":[{"title":"소재(생산자/산지/품종 중)","content":"숨은 이야기나 알아두면 좋은 배경지식 2-3문장"}],
 "essentialContext":"이 와인을 이해하기 위한 핵심 배경(등급 체계, 산지 특성 등) 3-4문장",
-"hierarchy":{"description":"생산자 라인업 내 위치 설명","table":[{"rank":"①","name":"","category":"","isCurrent":false}]},
+"hierarchy":{"description":"[특수한 경우에만 작성] 독일 VDP 등급·모노폴(monopole)·특별한 리외디(lieu-dit)·생소하거나 일반적이지 않은 등급 체계처럼 위계를 알아두면 도움되는 경우에만 채운다. 보르도 샤토·평범한 부르고뉴 빌라주·신대륙 와인 등 일반적인 경우는 반드시 table을 빈 배열 []로 둔다.","table":[]},
 "classificationKey":{"title":"알아야 할 핵심 코드/시스템","items":[{"code":"","meaning":""}]},
 "vintageCharacter":"${v||"해당"} 빈티지의 기상·작황·스타일·숙성잠재력 3-4문장",
 "criticalInsight":"이 와인만의 구별되는 핵심 포인트 2-3문장",
@@ -941,6 +941,7 @@ function CellarTab({ wines, notes, onNav, onBatchFill, batchState }) {
   const [typeFlt, setTF] = useState("all");
   const [aocFlt, setAF] = useState("all");
   const [showConsumed, setShowConsumed] = useState(false);
+  const [stockView, setStockView] = useState("instock"); // instock | consumed
 
   const inStock = wines.filter(w=>w.status!=="Consumed");
   const consumed = wines.filter(w=>w.status==="Consumed");
@@ -969,8 +970,10 @@ function CellarTab({ wines, notes, onNav, onBatchFill, batchState }) {
     return 0;
   });
 
-  // Consumed: sort by date desc
-  const consumedSorted = [...consumed].sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+  // Consumed: 검색 적용 + 날짜 내림차순
+  let consumedSorted = consumed;
+  if(search.trim()){ const q=search.toLowerCase(); consumedSorted=consumedSorted.filter(w=>(w.nameKR||"").toLowerCase().includes(q)||(w.nameEN||"").toLowerCase().includes(q)||(w.producer||"").toLowerCase().includes(q)||(w.region||"").toLowerCase().includes(q)); }
+  consumedSorted = [...consumedSorted].sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
 
   const Chip=({v,cur,set,label})=>(
     <button onClick={()=>set(v)} style={{border:`1px solid ${cur===v?RED:"#ddd"}`,borderRadius:20,padding:"4px 11px",fontSize:11,fontWeight:cur===v?600:400,background:cur===v?RED:"#fff",color:cur===v?"#fff":"#666",cursor:"pointer",whiteSpace:"nowrap"}}>{label}</button>
@@ -982,6 +985,18 @@ function CellarTab({ wines, notes, onNav, onBatchFill, batchState }) {
         <span style={{fontWeight:600,fontSize:15}}>내 셀러 <span style={{color:"#aaa",fontWeight:400,fontSize:13}}>({inStock.length}병)</span></span>
         <PB onClick={()=>onNav("add",{type:"cellar"})}>+ 와인 추가</PB>
       </div>
+
+      {/* 재고 / 마신 와인 토글 */}
+      {consumed.length>0 && (
+        <div style={{display:"flex",gap:6,marginBottom:12}}>
+          {[["instock",`🍷 보관 중 (${inStock.length})`],["consumed",`✓ 마신 와인 (${consumed.length})`]].map(([k,l])=>(
+            <button key={k} onClick={()=>setStockView(k)}
+              style={{flex:1,padding:"9px",border:"none",borderRadius:10,fontSize:13,fontWeight:stockView===k?700:500,background:stockView===k?RED:"#fff",color:stockView===k?"#fff":"#888",cursor:"pointer",boxShadow:stockView===k?"none":"0 1px 2px rgba(0,0,0,.04)"}}>
+              {l}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── 일괄 AI 채우기 ── */}
       {(()=>{
@@ -1004,8 +1019,8 @@ function CellarTab({ wines, notes, onNav, onBatchFill, batchState }) {
         );
       })()}
 
-      {/* ── Drink timing alert ── */}
-      {(()=>{
+      {/* ── Drink timing alert (재고 뷰만) ── */}
+      {stockView==="instock" && (()=>{
         const urgent=inStock.filter(w=>getDrinkStatus(w.drinkFrom,w.drinkUntil)==="urgent");
         const past=inStock.filter(w=>getDrinkStatus(w.drinkFrom,w.drinkUntil)==="past");
         if(urgent.length===0&&past.length===0)return null;
@@ -1024,31 +1039,31 @@ function CellarTab({ wines, notes, onNav, onBatchFill, batchState }) {
         style={{...IS,marginBottom:10,fontSize:13}}/>
 
       {/* Drink status filter — In Stock only, no 마심 chip */}
-      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
+      {stockView==="instock" && <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
         {[["all","전체"],["now","지금"],["urgent","긴급"],["past","피크지남"],["young","숙성중"]].map(([k,l])=>{
           const cnt=k==="all"?inStock.length:inStock.filter(w=>getDrinkStatus(w.drinkFrom,w.drinkUntil)===k).length;
           return <Chip key={k} v={k} cur={flt} set={sf} label={`${l}(${cnt})`}/>;
         })}
-      </div>
+      </div>}
 
-      {/* Country + Type + AOC filter */}
-      {countries.length>1&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
+      {/* Country + Type + AOC filter (재고 뷰만) */}
+      {stockView==="instock" && countries.length>1&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
         <Chip v="all" cur={countryFlt} set={setCF} label="🌍 전체"/>
         {countries.map(c=><Chip key={c} v={c} cur={countryFlt} set={setCF} label={c}/>)}
       </div>}
-      {types.length>1&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
+      {stockView==="instock" && types.length>1&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
         <Chip v="all" cur={typeFlt} set={setTF} label="🍾 전체"/>
         {types.map(t=><Chip key={t} v={t} cur={typeFlt} set={setTF} label={`${TICON[t]||"🍾"} ${t}`}/>)}
       </div>}
-      {(()=>{const aocs=[...new Set(inStock.map(w=>getAOC(w)))].sort();return aocs.length>1&&(
+      {stockView==="instock" && (()=>{const aocs=[...new Set(inStock.map(w=>getAOC(w)))].sort();return aocs.length>1&&(
         <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
           <Chip v="all" cur={aocFlt} set={setAF} label="🌍 AOC 전체"/>
           {aocs.map(a=><Chip key={a} v={a} cur={aocFlt} set={setAF} label={a}/>)}
         </div>
       );})()}
 
-      {/* Sort */}
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+      {/* Sort (재고 뷰만) */}
+      {stockView==="instock" && <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
         <span style={{fontSize:11,color:"#aaa",flexShrink:0}}>정렬:</span>
         <select value={sort} onChange={e=>setSort(e.target.value)} style={{fontSize:12,border:"1px solid #ddd",borderRadius:6,padding:"4px 8px",background:"#fff",color:"#555"}}>
           <option value="newest">최근 추가순</option>
@@ -1059,32 +1074,17 @@ function CellarTab({ wines, notes, onNav, onBatchFill, batchState }) {
           <option value="name">이름순</option>
         </select>
         <span style={{fontSize:11,color:"#aaa"}}>{filtered.length}병</span>
-      </div>
+      </div>}
 
-      {/* In Stock wine list */}
-      {filtered.length===0
-        ? <div style={{textAlign:"center",color:"#bbb",padding:48}}>{inStock.length===0?"와인을 추가해보세요 🍷":"검색 결과 없음"}</div>
-        : filtered.map(w => <WCard key={w.id} wine={w} nc={notes.filter(n=>n.wineId===w.id).length} onClick={()=>onNav("detail",{wine:w})}/>)
-      }
-
-      {/* ── Consumed section (collapsible) ── */}
-      {consumed.length > 0 && (
-        <div style={{marginTop:24}}>
-          <button onClick={()=>setShowConsumed(v=>!v)}
-            style={{width:"100%",background:"#f5f2ee",border:"none",borderRadius:10,padding:"11px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",textAlign:"left"}}>
-            <span style={{fontSize:13,fontWeight:600,color:"#888"}}>🍷 마신 와인 <span style={{fontSize:12,fontWeight:400}}>({consumed.length}병)</span></span>
-            <span style={{fontSize:13,color:"#aaa"}}>{showConsumed?"▲ 접기":"▼ 펼치기"}</span>
-          </button>
-          {showConsumed && (
-            <div style={{marginTop:8}}>
-              {consumedSorted.map(w => (
-                <div key={w.id} style={{opacity:.75}}>
-                  <WCard wine={w} nc={notes.filter(n=>n.wineId===w.id).length} onClick={()=>onNav("detail",{wine:w})}/>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+      {/* 와인 목록 */}
+      {stockView==="consumed" ? (
+        consumedSorted.length===0
+          ? <div style={{textAlign:"center",color:"#bbb",padding:48}}>마신 와인이 없습니다</div>
+          : consumedSorted.map(w => (<div key={w.id} style={{opacity:.8}}><WCard wine={w} nc={notes.filter(n=>n.wineId===w.id).length} onClick={()=>onNav("detail",{wine:w})}/></div>))
+      ) : (
+        filtered.length===0
+          ? <div style={{textAlign:"center",color:"#bbb",padding:48}}>{inStock.length===0?"와인을 추가해보세요 🍷":"검색 결과 없음"}</div>
+          : filtered.map(w => <WCard key={w.id} wine={w} nc={notes.filter(n=>n.wineId===w.id).length} onClick={()=>onNav("detail",{wine:w})}/>)
       )}
     </div>
   );
@@ -1389,6 +1389,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
   const upF = k => e => sf(p=>({...p,[k]:e.target.value}));
   const upR = k => e => sf(p=>({...p,expertRatings:{...p.expertRatings,[k]:e.target.value}}));
   const rat = syncRatings(wine.expertNotes, wine.expertRatings||{}); // 노트 점수 자동 반영
+  const av = avgScore(wine);
   const hasR = Object.values(rat).some(Boolean);
   const isBurg = wine.isBurgundy||["Burgundy","Bourgogne","부르고뉴"].some(r=>(wine.region||"").includes(r));
   const isBord = wine.isBordeaux||["Bordeaux","보르도"].some(r=>(wine.region||"").includes(r));
@@ -1408,36 +1409,18 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
         <div style={CS}>
           <div style={{display:"flex",gap:12}}>
             <WineImg photo={wine.labelPhoto} photoId={wine.labelPhotoId} style={{width:80,height:110,objectFit:"contain",borderRadius:8,flexShrink:0,background:"#f9f7f5"}}/>
-            <div style={{flex:1}}>
-              <div style={{fontSize:21,fontWeight:700,fontFamily:"Georgia,serif",marginBottom:4,lineHeight:1.3}}>{dn}</div>
-              {wine.nameKR&&wine.nameEN && (<div style={{fontSize:13,color:"#888",marginBottom:4,fontStyle:"italic"}}>{enUS}</div>)}
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:21,fontWeight:700,fontFamily:"Georgia,serif",marginBottom:4,lineHeight:1.3,wordBreak:"break-word"}}>{dn}</div>
+              {wine.nameKR&&wine.nameEN && (<div style={{fontSize:13,color:"#888",marginBottom:4,fontStyle:"italic",wordBreak:"break-word"}}>{enUS}</div>)}
               {wine.vintage && (<div style={{fontSize:17,color:GOLD,fontWeight:700,marginBottom:6}}>{wine.vintage}</div>)}
-              <div style={{fontSize:13,color:"#666",marginBottom:6}}>{[wine.producer,wine.region,wine.country].filter(Boolean).join(" · ")}</div>
-              {wine.classification && (<div style={{fontSize:12,color:RED,fontWeight:600,marginBottom:8}}>{wine.classification}</div>)}
+              <div style={{fontSize:13,color:"#666",marginBottom:6,wordBreak:"break-word"}}>{[wine.producer,wine.region,wine.country].filter(Boolean).join(" · ")}</div>
+              {wine.classification && (<div style={{fontSize:12,color:RED,fontWeight:600,marginBottom:8,wordBreak:"break-word"}}>{wine.classification}</div>)}
               <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
                 {isConsumed ? (<span style={{fontSize:12,background:"#f5f2ee",color:"#888",padding:"3px 10px",borderRadius:20}}>마신 와인</span>) : (<Badge from={wine.drinkFrom} until={wine.drinkUntil}/>)}
                 {wine.drinkFrom&&wine.drinkUntil && (<span style={{fontSize:12,color:"#aaa"}}>({wine.drinkFrom}–{wine.drinkUntil})</span>)}
+                {av && (<span style={{fontSize:12,fontWeight:700,color:GOLD,background:"#FBF4E4",border:`1px solid ${GOLD}40`,borderRadius:20,padding:"3px 11px"}}>★ {av.avg} <span style={{fontSize:10,fontWeight:500,color:"#b08030"}}>avg</span></span>)}
               </div>
             </div>
-            {isBurg&&rat.bh ? (
-              <div style={{textAlign:"center",background:"#FBF4E4",borderRadius:12,padding:"10px 14px",flexShrink:0,border:`1px solid ${GOLD}40`}}>
-                <div style={{fontSize:28,fontWeight:700,color:GOLD,lineHeight:1}}>{rat.bh}</div>
-                <div style={{fontSize:10,fontWeight:700,color:GOLD,marginTop:2}}>BH ★</div>
-                <div style={{fontSize:9,color:"#b08030"}}>Burghound</div>
-              </div>
-            ) : isBord&&rat.wa ? (
-              <div style={{textAlign:"center",background:"#F0F4FE",borderRadius:12,padding:"10px 14px",flexShrink:0,border:"1px solid #B8CCF040"}}>
-                <div style={{fontSize:28,fontWeight:700,color:"#3B5BA5",lineHeight:1}}>{rat.wa}</div>
-                <div style={{fontSize:10,fontWeight:700,color:"#3B5BA5",marginTop:2}}>WA ★</div>
-                <div style={{fontSize:9,color:"#3B5BA5",opacity:.7}}>Wine Advocate</div>
-              </div>
-            ) : hasR ? (
-              <div style={{textAlign:"center",background:"#f9f7f5",borderRadius:12,padding:"10px 14px",flexShrink:0}}>
-                {CRITICS.filter(c=>rat[c.k]).slice(0,1).map(c=>(
-                  <div key={c.k}><div style={{fontSize:28,fontWeight:700,color:GOLD,lineHeight:1}}>{rat[c.k]}</div><div style={{fontSize:10,fontWeight:600,color:"#888",marginTop:2}}>{c.ab}</div></div>
-                ))}
-              </div>
-            ) : null}
           </div>
           {wine.description && (<p style={{fontSize:13,color:"#555",lineHeight:1.8,marginTop:14,paddingTop:14,borderTop:"1px solid #f0ece8",marginBottom:0}}>{wine.description}</p>)}
         </div>
@@ -1515,6 +1498,15 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {/* ── 종합 예상 시음노트 (AI) ── */}
+            {subtab==="taste" && insights?.predictedPalate && (
+              <div style={{...CS,borderLeft:`3px solid ${RED}`}}>
+                <SH>🍷 종합 예상 시음노트</SH>
+                <div style={{fontSize:13,color:"#333",lineHeight:1.8}}>{insights.predictedPalate}</div>
+                <div style={{fontSize:11,color:"#bbb",marginTop:8}}>※ 전문가 평가와 품종·산지·빈티지 특성을 종합한 AI 예측입니다.</div>
               </div>
             )}
 
@@ -1663,12 +1655,6 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                       <div style={{fontSize:13,color:"#333",lineHeight:1.6}}>{insights.criticalInsight}</div>
                     </div>
                   )}
-                  {insights.predictedPalate && (
-                    <div style={{marginBottom:12,background:"#FBF6F2",borderRadius:8,padding:"12px 14px",borderLeft:`3px solid ${RED}`}}>
-                      <div style={{fontSize:11,fontWeight:700,color:RED,marginBottom:5}}>🍷 종합 예상 시음노트</div>
-                      <div style={{fontSize:13,color:"#333",lineHeight:1.7}}>{insights.predictedPalate}</div>
-                    </div>
-                  )}
                   {insights.winemakingImpact && (
                     <div style={{marginBottom:12}}>
                       <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:4,textTransform:"uppercase"}}>⚗️ 양조가 향·맛에 미치는 영향</div>
@@ -1782,11 +1768,13 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                     {reco.items.map((it,i)=>{
                       const w = wines.find(x=>x.id===it.id);
                       if(!w) return null;
+                      const consumedRec = w.status==="Consumed";
                       return (
                         <div key={i} onClick={()=>onOpenWine&&onOpenWine(w)}
-                          style={{background:"#FBF8F4",borderRadius:8,padding:"10px 12px",marginBottom:6,cursor:"pointer",border:"1px solid #f0e8de"}}>
-                          <div style={{fontSize:13,fontWeight:700,color:"#333",marginBottom:2}}>
-                            {cleanName(w.nameKR||w.nameEN,w.vintage)}{w.vintage?<span style={{color:GOLD,fontWeight:600}}> {w.vintage}</span>:null}
+                          style={{background:consumedRec?"#f5f2ee":"#FBF8F4",borderRadius:8,padding:"10px 12px",marginBottom:6,cursor:"pointer",border:"1px solid #f0e8de",opacity:consumedRec?.7:1}}>
+                          <div style={{fontSize:13,fontWeight:700,color:"#333",marginBottom:2,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                            <span>{cleanName(w.nameKR||w.nameEN,w.vintage)}{w.vintage?<span style={{color:GOLD,fontWeight:600}}> {w.vintage}</span>:null}</span>
+                            {consumedRec && <span style={{fontSize:10,fontWeight:600,background:"#e7e1da",color:"#888",borderRadius:10,padding:"1px 7px"}}>✓ 마심</span>}
                           </div>
                           <div style={{fontSize:11,color:"#888",marginBottom:4}}>{[w.region,w.country].filter(Boolean).join(", ")}</div>
                           <div style={{fontSize:11,color:"#666",lineHeight:1.4}}>💡 {it.whySimilar}</div>
