@@ -997,6 +997,14 @@ function CellarTab({ wines, notes, onNav, onBatchFill, batchState }) {
     if(sort==="vintage_asc") return (parseInt(a.vintage)||0)-(parseInt(b.vintage)||0);
     if(sort==="name") return (a.nameKR||a.nameEN||"").localeCompare(b.nameKR||b.nameEN||"","ko");
     if(sort==="until") return (parseInt(a.drinkUntil)||9999)-(parseInt(b.drinkUntil)||9999);
+    if(sort==="price_desc"||sort==="price_asc"){
+      const pr=w=>parseInt(w.marketPrice)||parseInt(w.purchasePrice)||0;
+      return sort==="price_desc" ? pr(b)-pr(a) : (pr(a)||9e15)-(pr(b)||9e15);
+    }
+    if(sort==="value"){ // 가성비: 평점/가격 높은순
+      const val=w=>{ const p=parseInt(w.marketPrice)||parseInt(w.purchasePrice)||0; const s=avgScore(w)?.avg||0; return (p>0&&s>0)?s/(p/10000):-1; };
+      return val(b)-val(a);
+    }
     return 0;
   });
 
@@ -1089,6 +1097,9 @@ function CellarTab({ wines, notes, onNav, onBatchFill, batchState }) {
                 <option value="until">마감임박순</option>
                 <option value="vintage_desc">빈티지↓</option>
                 <option value="vintage_asc">빈티지↑</option>
+                <option value="price_desc">가격 높은순</option>
+                <option value="price_asc">가격 낮은순</option>
+                <option value="value">가성비순</option>
                 <option value="name">이름순</option>
               </select>
             </div>
@@ -2350,7 +2361,15 @@ function TasteRadar({ entries }) {
         {entries.map((e,ei)=>{
           const poly = e.values.map((v,i)=>pt(i, R*Math.max(0,Math.min(5,v))/5).join(",")).join(" ");
           return <g key={ei}><polygon points={poly} fill={e.color+"22"} stroke={e.color} strokeWidth="2"/>
-            {e.values.map((v,i)=>{const[x,y]=pt(i,R*Math.max(0,Math.min(5,v))/5);return <circle key={i} cx={x} cy={y} r="2.5" fill={e.color}/>;})}
+            {e.values.map((v,i)=>{
+              const vv=Math.max(0,Math.min(5,v)); const[x,y]=pt(i,R*vv/5);
+              // 점에서 중심 반대 방향으로 살짝 띄워 숫자 배치
+              const[nx,ny]=pt(i,R*vv/5+ (entries.length>1?(ei===0?11:-11):11));
+              return <g key={i}>
+                <circle cx={x} cy={y} r="2.8" fill={e.color}/>
+                {vv>0 && <text x={nx} y={ny} fontSize="9" fontWeight="700" fill={e.color} textAnchor="middle" dominantBaseline="middle">{vv}</text>}
+              </g>;
+            })}
           </g>;
         })}
       </svg>
@@ -3005,12 +3024,24 @@ function App() {
         }
         if(!imported.length){ alert("불러올 와인이 없습니다."); return; }
         if(!window.confirm(`${imported.length}개의 와인을 셀러에 추가합니다.\n(기존 와인은 그대로 두고 새로 추가됩니다.)\n계속할까요?`)) return;
+        if(wines.length>0){ autoBackup("csv"); }
         persist([...wines, ...imported], notes);
         alert(`✓ ${imported.length}개 와인을 추가했습니다.`);
       }catch(err){ alert("CSV 읽기 오류: "+err.message); }
     };
     reader.readAsText(file);
     e.target.value="";
+  }
+  function autoBackup(reason){
+    try{
+      const data = JSON.stringify({wines, notes}, null, 2);
+      const blob = new Blob([data], {type:"application/json"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const ts = new Date().toISOString().replace(/[:T]/g,"-").split(".")[0];
+      a.href = url; a.download = `wine-cellar-AUTO백업-${ts}.json`;
+      a.click(); URL.revokeObjectURL(url);
+    }catch(e){}
   }
   function doImportJSON(e) {
     const file = e.target.files[0];
@@ -3019,12 +3050,47 @@ function App() {
     reader.onload = async ev => {
       try {
         const d = JSON.parse(ev.target.result);
-        if (d.wines) {
-          sw(d.wines); sn(d.notes||[]); await saveLocal(d.wines, d.notes||[]);
-          const migrated = await migrateImages(d.wines, d.notes||[]);
-          if(migrated) sw(migrated);
+        if (!d.wines) { alert("이 파일에는 와인 데이터가 없습니다. 올바른 백업 파일인지 확인해주세요."); e.target.value=""; return; }
+        const incoming = d.wines.length;
+        const incomingNotes = (d.notes||[]).length;
+        const cur = wines.length;
+        // 선택: 덮어쓰기 vs 합치기 vs 취소
+        const mode = window.prompt(
+          `📂 불러올 파일: 와인 ${incoming}병, 노트 ${incomingNotes}개\n` +
+          `📦 현재 셀러: 와인 ${cur}병, 노트 ${notes.length}개\n\n` +
+          `어떻게 할까요? 숫자를 입력하세요:\n` +
+          `  1 = 합치기 (현재 데이터 유지 + 불러온 것 추가) ← 안전\n` +
+          `  2 = 덮어쓰기 (현재 데이터를 모두 지우고 파일로 교체)\n` +
+          `  (취소하려면 빈 칸으로 두고 확인)`,
+          "1"
+        );
+        if(mode!=="1" && mode!=="2"){ e.target.value=""; return; }
+
+        // 어떤 경우든 먼저 현재 상태 자동 백업 (실수 대비)
+        if(cur>0 || notes.length>0){
+          alert("안전을 위해 현재 데이터를 자동으로 백업 파일로 내려받습니다. (혹시 잘못되면 이 파일로 되돌릴 수 있습니다)");
+          autoBackup("import");
         }
-      } catch(err) { alert("파일 형식이 올바르지 않습니다."); }
+
+        let newWines, newNotes;
+        if(mode==="2"){
+          if(!window.confirm(`정말 현재 ${cur}병을 지우고 파일의 ${incoming}병으로 교체할까요?\n(방금 받은 자동 백업으로 되돌릴 수 있습니다)`)){ e.target.value=""; return; }
+          newWines = d.wines; newNotes = d.notes||[];
+        } else {
+          // 합치기: id 충돌 피해 새 id 부여, 완전 동일(이름+빈티지) 중복은 건너뜀
+          const key = w => `${(w.nameKR||w.nameEN||"").trim()}|${w.vintage||""}|${w.producer||""}`;
+          const existKeys = new Set(wines.map(key));
+          const add = (d.wines||[]).filter(w=>!existKeys.has(key(w))).map(w=>({...w, id:String(Date.now())+Math.random().toString(36).slice(2,7)}));
+          const addNotes = (d.notes||[]).map(n=>({...n, id:String(Date.now())+Math.random().toString(36).slice(2,7)}));
+          newWines = [...wines, ...add];
+          newNotes = [...notes, ...addNotes];
+          alert(`합치기 완료: 새 와인 ${add.length}병, 새 노트 ${addNotes.length}개 추가 (중복 ${incoming-add.length}병 건너뜀)`);
+        }
+        sw(newWines); sn(newNotes); await saveLocal(newWines, newNotes);
+        const migrated = await migrateImages(newWines, newNotes);
+        if(migrated) sw(migrated);
+      } catch(err) { alert("파일 형식이 올바르지 않습니다: "+err.message); }
+      e.target.value="";
     };
     reader.readAsText(file);
   }
@@ -3086,7 +3152,20 @@ function App() {
     setBatchState(null);
     alert("일괄 채우기 완료!");
   }
-  function deleteWine(id) { persist(wines.filter(w=>w.id!==id),notes.filter(n=>n.wineId!==id)); back(); }
+  function deleteWine(id) {
+    const w = wines.find(x=>x.id===id);
+    const linked = notes.filter(n=>n.wineId===id);
+    if(linked.length>0){
+      const ok = window.confirm(`이 와인에 작성된 시음 노트가 ${linked.length}개 있습니다.\n와인을 삭제해도 노트는 보존됩니다(와인과의 연결만 끊김).\n정말 삭제할까요?`);
+      if(!ok) return;
+    }
+    // 노트는 살리되 wineId 끊고 와인명을 텍스트로 고정
+    const keptNotes = notes.map(n => n.wineId===id
+      ? {...n, wineId:null, wineName:n.wineName||cleanName(w?.nameKR||w?.nameEN,w?.vintage), vintage:n.vintage||w?.vintage||""}
+      : n);
+    persist(wines.filter(w=>w.id!==id), keptNotes);
+    back();
+  }
   
   function saveNote(n, opts={}) {
     let u, updatedWines = wines;
@@ -3166,7 +3245,8 @@ function App() {
               </label>
             </div>
             <div style={{fontSize:10,color:"#bbb",marginTop:8,lineHeight:1.5}}>
-              엑셀(CSV): 와인 목록을 표로 내보내 엑셀에서 편집·정리 후 다시 불러올 수 있습니다(사진·시음노트·AI 상세는 제외). 전체 백업(JSON): 사진·노트·AI정보까지 모두 포함한 완전 백업이며, 받은 파일을 구글 드라이브 등에 보관하세요.
+              <b style={{color:"#999"}}>백업은 '전체 백업(JSON)'을 우선 사용하세요.</b> 사진·시음노트·AI 상세정보까지 모두 포함한 완전 백업이며, 받은 파일을 구글 드라이브 등에 보관하면 안전합니다.<br/>
+              엑셀(CSV)은 와인 목록을 표로 보거나 편집할 때 쓰는 보조 수단입니다(사진·노트·AI 상세 제외). 엑셀 버전에 따라 구분자가 바뀌어 가져오기가 꼬일 수 있으니, 대량 백업·복원은 반드시 JSON으로 하세요.
             </div>
           </div>
           <div style={{marginBottom:14}}>
@@ -3244,6 +3324,18 @@ function App() {
         {tab==="wishlist" && (<WishlistTab wines={wis} onNav={nav} onMove={id=>editWine(id,{type:"cellar",status:"In Stock"})}/>)}
         {tab==="stats" && (<StatsTab wines={wines} notes={notes} tasters={tasters}/>)}
       </div>
+
+      {/* 플로팅 추가 버튼 (FAB) */}
+      {(tab==="cellar"||tab==="tasting"||tab==="wishlist") && (
+        <button
+          onClick={()=> tab==="cellar" ? nav("add",{type:"cellar"})
+            : tab==="wishlist" ? nav("add",{type:"wishlist"})
+            : nav("tasting")}
+          aria-label="추가"
+          style={{position:"fixed",right:20,bottom:24,width:58,height:58,borderRadius:"50%",background:RED,color:"#fff",border:"none",boxShadow:"0 4px 14px rgba(139,38,53,.45)",fontSize:30,lineHeight:1,cursor:"pointer",zIndex:50,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          +
+        </button>
+      )}
     </div>
   );
 }
