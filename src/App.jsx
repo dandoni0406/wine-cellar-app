@@ -388,6 +388,11 @@ const lookupWine = (name, v) => aiJson(
 먼저 국가→지역→생산자를 확정한 뒤 나머지를 채울 것. (예: "Beaune/본"은 프랑스 부르고뉴이지 독일 Bonn이 아님)
 추측은 치명적 오류다. 확신 80% 미만 항목은 반드시 빈 문자열로 둘 것.
 사용자 입력이 영어든 한글이든, nameKR은 반드시 한국어(한글)로 채운다. 영어를 그대로 두지 말 것 (예: "Chateau Talbot"→"샤토 탈보", "Domaine Dujac"→"도멘 뒤작"). 입력 한글이 부정확하면 정확한 공식 한글 표기로 교정 (예: "샤또딸보"→"샤토 탈보", "본로마네"→"본 로마네"). nameEN에는 영문 정식 표기를 넣는다.
+[명명 원칙 — 반드시 준수] nameKR·nameEN 모두 "생산자(도멘/샤토 포함) + 와인명/밭 + 등급(있으면)" 순서로 일관되게 적는다. 라벨에 적힌 순서가 와인명이 먼저여도 반드시 생산자를 앞에 둔다.
+- 부르고뉴 도멘은 "도멘 ___"(Domaine ___)으로 시작 (예: "도멘 뒤작 모레 생 드니", "Domaine Dujac Morey-Saint-Denis"). 단 메종/네고시앙 등 생산자명에 원래 도멘이 없으면 억지로 붙이지 않는다.
+- 보르도 샤토는 "샤토 ___"(Château ___) (예: "샤토 딸보", "Château Talbot").
+- 생산자명이 이미 와인명에 포함돼 있으면 중복해서 또 쓰지 않는다.
+- producer 필드에는 생산자만(도멘/샤토 포함) 따로 정확히 넣는다.
 {"nameKR":"한국어와인명","nameEN":"English name","producer":"생산자","country":"국가","region":"지역","subRegion":"세부지역","vineyard":"포도밭","classification":"등급","grapeVariety":"포도품종","wineType":"Red","drinkFrom":"시작연도숫자","drinkUntil":"종료연도숫자","description":"3문장 한국어 설명","isBurgundy":false,"isBordeaux":false,"vineyardLat":"위도소수","vineyardLon":"경도소수","vineyardZoom":"15","mapNotes":"밭위치설명","expertRatings":{"bh":"","ws":"","wa":"","vinous":"","js":"","jr":"","dec":"","jm":""}}
 중요: expertRatings 각 필드는 실제 점수 숫자(예: 92)가 확인된 경우에만 입력. 없으면 반드시 빈 문자열 "" — 절대 설명 텍스트 금지.`, 2000
 );
@@ -446,7 +451,7 @@ const enrichAll = (name, v, anchor, model) => {
 ${known?`<known_facts>\n이미 확인된 정보(반드시 이와 모순되지 않게, 이 범위 안에서 작성):\n${known}\n</known_facts>`:""}
 <rules>
 1. 추측 금지: 국가→지역(AOC/AVA)→생산자→포도밭 순으로 교차 검증한다. (예: "Beaune/본"은 프랑스 부르고뉴이지 독일 Bonn이 아니다.) 확신 80% 미만 항목은 반드시 빈 문자열("")로 남긴다. 추측은 치명적 오류로 간주한다.
-2. nameKR은 입력이 영어든 한글이든 반드시 한국어(한글) 공식 표기로 채운다. 영어를 그대로 두지 말 것 (예: "Domaine Dujac"→"도멘 뒤작", "Chateau Talbot"→"샤토 탈보", "샤또딸보"→"샤토 탈보"). nameEN에는 영문 정식 표기. nameKR/nameEN에 빈티지 숫자 포함 금지.
+2. nameKR은 입력이 영어든 한글이든 반드시 한국어(한글) 공식 표기로 채운다. 영어를 그대로 두지 말 것 (예: "Domaine Dujac"→"도멘 뒤작", "Chateau Talbot"→"샤토 탈보", "샤또딸보"→"샤토 탈보"). nameEN에는 영문 정식 표기. nameKR/nameEN에 빈티지 숫자 포함 금지. [명명 순서] nameKR·nameEN 모두 "생산자(도멘/샤토 포함)+와인명/밭+등급" 순서로 일관되게 적고(라벨 순서가 와인명 먼저여도 생산자를 앞에), 부르고뉴 도멘은 "도멘 ___"/"Domaine ___", 보르도 샤토는 "샤토 ___"/"Château ___"로 표기하며 생산자명이 와인명에 이미 있으면 중복하지 않는다.
 3. 전문가 평점/노트: expertRatings는 실제 확인된 숫자만, 없으면 "". expertNotes는 실제 존재하는 평론가만 포함하고, 면책 문구 없이 한국어 평서체로 번역한다.
 4. JSON만: 마크다운 펜스/설명 없이 순수 JSON만 반환한다.
 5. 문체: 모든 서술형 텍스트는 '~이다/~한다' 평서체로 작성한다. 존댓말 금지(위 [필수 문체] 재확인).
@@ -576,6 +581,7 @@ async function computeEnrich(wine, cellarWines, lite=false, model){
   };
 }
 const correctWine = (name, v) => aiJson(`와인 "${name}"${v?` 빈티지 ${v}`:""}을 보정해서 JSON만. nameKR/nameEN에 빈티지 포함 금지.
+[명명 원칙] nameKR·nameEN 모두 "생산자(도멘/샤토 포함) + 와인명/밭 + 등급" 순서로 일관되게. 라벨 순서가 와인명 먼저여도 생산자를 앞에 둔다. 부르고뉴 도멘은 "도멘 ___"/"Domaine ___", 보르도 샤토는 "샤토 ___"/"Château ___". 생산자명이 이미 와인명에 포함되면 중복 금지. nameKR은 반드시 한글(영어 입력도 한글로 번역). producer 필드엔 생산자만 정확히.
 {"nameKR":"","nameEN":"","vintage":"","producer":"","region":"","country":"","wineType":"Red|White|Rosé|Sparkling|Dessert|Fortified","isBurgundy":false}`, 1500);
 // 자유서술 → WSET 지표 매핑용
 const _aromaNames = T_AROMA.flatMap(([,items])=>items.map(([,n])=>n));
@@ -1498,6 +1504,26 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
               <DR label="지역" val={wine.region}/><DR label="세부지역" val={wine.subRegion}/>
               <DR label="포도밭" val={wine.vineyard}/><DR label="등급" val={wine.classification}/>
               <DR label="포도품종" val={wine.grapeVariety}/><DR label="용량" val={wine.bottleSize}/>
+              {wine.type==="cellar" && (
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:10,paddingTop:10,borderTop:"1px solid #f0ece6"}}>
+                  <span style={{fontSize:13,color:"#666",fontWeight:600}}>보유 수량</span>
+                  {isConsumed ? (
+                    <button onClick={()=>onUpdate({status:"In Stock",quantity:"1"})}
+                      style={{fontSize:12,color:RED,background:"#FDF1F2",border:`1px solid ${RED}40`,borderRadius:8,padding:"6px 12px",cursor:"pointer",fontWeight:600}}>↩ 셀러로 되돌리기</button>
+                  ) : (
+                    <div style={{display:"flex",alignItems:"center",gap:14}}>
+                      <button onClick={()=>{
+                        const q=parseInt(wine.quantity)||1;
+                        if(q<=1){ if(window.confirm("마지막 한 병입니다. 다 마신 것으로 표시할까요?\n('마신 와인'으로 이동합니다.")) onUpdate({quantity:"0",status:"Consumed"}); }
+                        else onUpdate({quantity:String(q-1)});
+                      }} style={{width:34,height:34,borderRadius:"50%",border:`1.5px solid ${RED}`,background:"#fff",color:RED,fontSize:20,fontWeight:700,cursor:"pointer",lineHeight:1}}>−</button>
+                      <span style={{fontSize:18,fontWeight:700,minWidth:28,textAlign:"center"}}>{parseInt(wine.quantity)||1}<span style={{fontSize:12,color:"#aaa",fontWeight:400}}>병</span></span>
+                      <button onClick={()=>onUpdate({quantity:String((parseInt(wine.quantity)||1)+1)})}
+                        style={{width:34,height:34,borderRadius:"50%",border:`1.5px solid ${RED}`,background:RED,color:"#fff",fontSize:20,fontWeight:700,cursor:"pointer",lineHeight:1}}>+</button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* ── AI Enrich prompt ── */}
