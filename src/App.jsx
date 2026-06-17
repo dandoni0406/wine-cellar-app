@@ -223,11 +223,12 @@ async function callGemini(prompt, apiKey, tokens, model){
   const isPro = model.includes("pro");
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const genConfig = {
-    maxOutputTokens: Math.max(tokens||2000, isPro?16000:6000),
+    maxOutputTokens: Math.max(tokens||2000, isPro?24000:6000),
     temperature:0.15,
     responseMimeType:"application/json"   // JSON 모드 강제 → 인사말/마크다운 없이 순수 JSON, 파싱 먹통 방지
   };
-  if(!isPro) genConfig.thinkingConfig = {thinkingBudget:0};  // Flash만 thinking 끔 (Pro는 thinking 필수라 끄지 않음)
+  // Flash: thinking 끔. Pro: thinking 필수라 끌 순 없지만, 추론이 토큰을 다 먹어 답변이 잘리는 것을 막기 위해 예산을 제한.
+  genConfig.thinkingConfig = isPro ? {thinkingBudget:6000} : {thinkingBudget:0};
   const body = JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:genConfig });
   const sleep = ms => new Promise(res=>setTimeout(res,ms));
   const fetchTimeout = (u,opt,ms)=>{ const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms); return fetch(u,{...opt,signal:c.signal}).finally(()=>clearTimeout(t)); };
