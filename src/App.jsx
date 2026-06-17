@@ -3064,19 +3064,19 @@ function App() {
 
   return (
     <div style={{minHeight:"100vh",background:"#F7F4F0",fontFamily:"system-ui,sans-serif"}}>
-      <div style={{background:RED,padding:"12px 16px",display:"flex",alignItems:"center",gap:10}}>
-        <span style={{fontSize:24}}>🍷</span>
-        <div style={{flex:1}}>
-          <div style={{fontSize:17,fontWeight:700,color:"#fff"}}>My Wine Cellar</div>
-          <div style={{fontSize:11,color:"rgba(255,255,255,.7)"}}>{inStockCount}병 · 노트 {notes.length} · 관심 {wis.length}</div>
+      <div style={{background:RED,padding:"12px 14px",display:"flex",alignItems:"center",gap:10}}>
+        <span style={{fontSize:22,flexShrink:0}}>🍷</span>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:17,fontWeight:700,color:"#fff",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>My Wine Cellar</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.7)",whiteSpace:"nowrap"}}>{inStockCount}병 · 노트 {notes.length} · 관심 {wis.length}</div>
         </div>
-        <div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>
-          <button onClick={doExportJSON} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>📤 내보내기</button>
-          <label style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>
-            📥 불러오기<input type="file" accept=".json" onChange={doImportJSON} style={{display:"none"}}/>
+        <div style={{display:"flex",gap:4,flexShrink:0}}>
+          <label title="불러오기" style={{background:"rgba(255,255,255,.15)",color:"#fff",borderRadius:8,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,cursor:"pointer"}}>
+            📥<input type="file" accept=".json" onChange={doImportJSON} style={{display:"none"}}/>
           </label>
-          <button onClick={()=>nav("cellarmap")} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>🗺 지도</button>
-          <button onClick={()=>setShowSettings(s=>!s)} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:6,padding:"5px 10px",fontSize:11,fontWeight:600,cursor:"pointer"}}>⚙️</button>
+          <button title="내보내기" onClick={doExportJSON} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,width:34,height:34,fontSize:15,cursor:"pointer"}}>📤</button>
+          <button title="지도" onClick={()=>nav("cellarmap")} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,width:34,height:34,fontSize:15,cursor:"pointer"}}>🗺</button>
+          <button title="설정" onClick={()=>setShowSettings(s=>!s)} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,width:34,height:34,fontSize:15,cursor:"pointer"}}>⚙️</button>
         </div>
       </div>
       {showSettings && (
