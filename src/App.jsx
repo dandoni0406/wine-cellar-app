@@ -78,6 +78,34 @@ function isDisclaimerNote(note) {
 
 // ── AOC / Appellation categorizer ────────────────────────────────
 
+// CSV (엑셀) 내보내기/가져오기 헬퍼
+const CSV_COLS = [
+  {key:"nameKR",label:"한글명"},{key:"nameEN",label:"영문명"},{key:"vintage",label:"빈티지"},
+  {key:"producer",label:"생산자"},{key:"wineType",label:"종류"},{key:"country",label:"국가"},
+  {key:"region",label:"지역"},{key:"subRegion",label:"세부지역"},{key:"vineyard",label:"포도밭"},
+  {key:"classification",label:"등급"},{key:"grapeVariety",label:"품종"},
+  {key:"drinkFrom",label:"음용From"},{key:"drinkUntil",label:"음용Until"},
+  {key:"quantity",label:"수량"},{key:"status",label:"상태"},
+  {key:"purchaseDate",label:"구매일"},{key:"shop",label:"구매처"},
+  {key:"purchasePrice",label:"구매가"},{key:"marketPrice",label:"시장가"},
+  {key:"bottleSize",label:"병크기"},{key:"location",label:"보관위치"},
+];
+function csvEscape(v){ const s=(v==null?"":String(v)); return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; }
+function parseCSV(text){
+  const rows=[]; let row=[], field="", i=0, q=false;
+  text=text.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+  while(i<text.length){
+    const ch=text[i];
+    if(q){ if(ch==='"'){ if(text[i+1]==='"'){field+='"';i+=2;continue;} q=false;i++;continue; } field+=ch;i++;continue; }
+    if(ch==='"'){q=true;i++;continue;}
+    if(ch===','){row.push(field);field="";i++;continue;}
+    if(ch==='\n'){row.push(field);rows.push(row);row=[];field="";i++;continue;}
+    field+=ch;i++;
+  }
+  if(field.length||row.length){row.push(field);rows.push(row);}
+  return rows;
+}
+
 function avgScore(wine) {
   const rat = wine.expertRatings||{};
   const scores = Object.values(rat)
@@ -2943,6 +2971,47 @@ function App() {
     a.href = url; a.download = `wine-cellar-${new Date().toISOString().split("T")[0]}.json`;
     a.click(); URL.revokeObjectURL(url);
   }
+  function doExportCSV() {
+    const head = CSV_COLS.map(c=>csvEscape(c.label)).join(",");
+    const body = wines.map(w=>CSV_COLS.map(c=>csvEscape(w[c.key])).join(",")).join("\n");
+    const csv = "\uFEFF" + head + "\n" + body; // BOM → 엑셀에서 한글 안 깨짐
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `wine-cellar-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  }
+  function doImportCSV(e) {
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try{
+        const rows = parseCSV(ev.target.result);
+        if(rows.length<2){ alert("데이터가 없습니다."); return; }
+        const header = rows[0].map(h=>String(h).replace(/^\uFEFF/,"").trim());
+        const idx = {}; CSV_COLS.forEach(c=>{ const i=header.indexOf(c.label); if(i>=0) idx[c.key]=i; });
+        if(idx.nameKR==null && idx.nameEN==null){ alert("'한글명' 또는 '영문명' 열이 필요합니다. 내보내기한 CSV 형식을 유지해주세요."); return; }
+        const imported = [];
+        for(let r=1;r<rows.length;r++){
+          const row=rows[r]; if(!row.length || row.every(c=>!String(c).trim())) continue;
+          const w={type:"cellar"};
+          CSV_COLS.forEach(c=>{ if(idx[c.key]!=null) w[c.key]=String(row[idx[c.key]]||"").trim(); });
+          if(!(w.nameKR||w.nameEN)) continue;
+          if(!w.quantity) w.quantity="1";
+          w.id=String(Date.now())+Math.random().toString(36).slice(2,7);
+          w.createdAt=new Date().toISOString();
+          imported.push(w);
+        }
+        if(!imported.length){ alert("불러올 와인이 없습니다."); return; }
+        if(!window.confirm(`${imported.length}개의 와인을 셀러에 추가합니다.\n(기존 와인은 그대로 두고 새로 추가됩니다.)\n계속할까요?`)) return;
+        persist([...wines, ...imported], notes);
+        alert(`✓ ${imported.length}개 와인을 추가했습니다.`);
+      }catch(err){ alert("CSV 읽기 오류: "+err.message); }
+    };
+    reader.readAsText(file);
+    e.target.value="";
+  }
   function doImportJSON(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -3082,6 +3151,24 @@ function App() {
       {showSettings && (
         <div style={{background:"#fff",borderBottom:"1px solid #eee",padding:"14px 16px"}}>
           <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:12}}>⚙️ 설정</div>
+
+          {/* 데이터 관리 (엑셀/백업) */}
+          <div style={{marginBottom:18,paddingBottom:16,borderBottom:"1px solid #f0ece6"}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#888",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>📊 데이터 (엑셀 · 백업)</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <button onClick={doExportCSV} style={{padding:"10px",border:"1px solid #1D6F42",borderRadius:8,background:"#fff",color:"#1D6F42",fontSize:12,fontWeight:600,cursor:"pointer"}}>📊 엑셀로 내보내기</button>
+              <label style={{padding:"10px",border:"1px solid #1D6F42",borderRadius:8,background:"#fff",color:"#1D6F42",fontSize:12,fontWeight:600,cursor:"pointer",textAlign:"center"}}>
+                📥 엑셀 불러오기<input type="file" accept=".csv" onChange={doImportCSV} style={{display:"none"}}/>
+              </label>
+              <button onClick={doExportJSON} style={{padding:"10px",border:"1px solid #ddd",borderRadius:8,background:"#fff",color:"#666",fontSize:12,fontWeight:600,cursor:"pointer"}}>💾 전체 백업(JSON)</button>
+              <label style={{padding:"10px",border:"1px solid #ddd",borderRadius:8,background:"#fff",color:"#666",fontSize:12,fontWeight:600,cursor:"pointer",textAlign:"center"}}>
+                📂 백업 복원(JSON)<input type="file" accept=".json" onChange={doImportJSON} style={{display:"none"}}/>
+              </label>
+            </div>
+            <div style={{fontSize:10,color:"#bbb",marginTop:8,lineHeight:1.5}}>
+              엑셀(CSV): 와인 목록을 표로 내보내 엑셀에서 편집·정리 후 다시 불러올 수 있습니다(사진·시음노트·AI 상세는 제외). 전체 백업(JSON): 사진·노트·AI정보까지 모두 포함한 완전 백업이며, 받은 파일을 구글 드라이브 등에 보관하세요.
+            </div>
+          </div>
           <div style={{marginBottom:14}}>
             <div style={{fontSize:11,fontWeight:600,color:"#888",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🤖 AI 제공자</div>
             <div style={{display:"flex",gap:8,marginBottom:8}}>
