@@ -294,6 +294,8 @@ let _ratingModel = "gemini-2.5-pro"; // 보강용 모델
 function setAIProvider(p, key){ _aiProvider=p; _geminiKey=key||""; }
 function setAIModel(m){ if(m) _aiModel = m; }
 function setRatingBoost(on, model){ _ratingBoost = !!on; if(model) _ratingModel = model; }
+let _glasses = [];                 // 보유 와인잔 목록 (잔 추천용)
+function setGlasses(arr){ _glasses = Array.isArray(arr)?arr.filter(Boolean):[]; }
 
 // AI 오류 알림 (429 한도초과 vs 일반오류 구분, 3초 디바운스)
 let _lastNotify = 0;
@@ -481,6 +483,9 @@ _reasoning 예시: "생산자는 Domaine Georges Mugneret-Gibourg, 산지는 프
 const deepInsights = (name, v, anchor, model) => {
   const a = anchor||{};
   const known = [a.producer&&`생산자:${a.producer}`, a.country&&`국가:${a.country}`, a.region&&`지역:${a.region}`, a.grapeVariety&&`품종:${a.grapeVariety}`].filter(Boolean).join(" / ");
+  const glassBlock = (_glasses&&_glasses.length)
+    ? `\n<owned_glasses>\n사용자가 보유한 와인잔 목록(이 안에서만 추천):\n${_glasses.map((g,i)=>`${i+1}. ${g}`).join("\n")}\n</owned_glasses>`
+    : "";
   return aiJson(
 `<role>
 당신은 WSET 디플로마 소지자이자 Burghound 수준의 분석력을 갖춘 와인 전문 작가다. 와인을 심층적으로 탐구하는 애호가를 위해, 검증된 사실에 기반해 깊이 있고 풍부하게 서술한다.
@@ -490,13 +495,14 @@ const deepInsights = (name, v, anchor, model) => {
 <task>
 와인 "${name}"${v?` (${v} 빈티지)`:""}에 대한 심층 해설을 아래 JSON으로만 반환한다.
 </task>
-${known?`<known_facts>\n${known}\n</known_facts>`:""}
+${known?`<known_facts>\n${known}\n</known_facts>`:""}${glassBlock}
 <rules>
 1. 확실한 사실은 충실하고 길게 서술하되, 모르거나 불확실한 내용은 짧게 하거나 빈 문자열("")로 둔다. 추측성 미사여구·일반론으로 분량을 채우지 마라. 거짓 정보는 치명적 오류다.
 2. 먼저 _reasoning에서 이 와인의 국가·지역·생산자·품종·등급을 팩트체크한 뒤 작성한다. ("Beaune/본"은 프랑스 부르고뉴이지 독일이 아님)
 3. 구체적이고 전문적으로. "좋은 와인이다" 같은 공허한 표현 대신, 왜 그런지 메커니즘과 근거를 든다.
 4. 마크다운 없이 순수 JSON만.
 5. 문체: 모든 서술형 텍스트는 '~이다/~한다' 평서체(문어체)로 작성한다. 존댓말(~입니다/~습니다/~세요) 금지.
+6. glassPairing: 위 <owned_glasses> 목록이 있으면, 그 목록 안에서만 이 와인에 가장 잘 맞는 잔 2~3개를 골라 정확한 목록 표기 그대로 name에 적고 이유를 한 문장으로. 목록이 없으면 빈 배열 []. 목록에 없는 잔을 새로 지어내지 말 것.
 </rules>
 
 {
@@ -504,6 +510,7 @@ ${known?`<known_facts>\n${known}\n</known_facts>`:""}
 "winemakingImpact":"이 와인의 경작(테루아·수확)·발효·숙성 방식이 실제로 향과 맛에 어떻게 나타나는지 인과적으로 4-6문장. 예: 새 오크 비율과 바닐라·토스트 풍미의 관계, MLF와 질감, 줄기 사용과 구조감 등. 확인된 양조 정보 기반.",
 "producerStory":"생산자의 역사·철학·양조 스타일을 심층적으로 4-6문장. 설립 배경, 세대 교체, 떼루아 철학, 시그니처 스타일 등 확인된 사실 위주.",
 "predictedPalate":"전문가 평가와 품종·산지·빈티지 특성을 종합해 예상되는 시음 프로파일을 4-6문장으로. 외관→향(1·2·3차)→입안(당도·산도·타닌·바디)→여운 순으로 구체적으로.",
+"glassPairing":[{"name":"보유 잔 목록의 정확한 표기","why":"이 와인에 맞는 이유 한 문장(평서체)"}],
 "stories":[{"title":"소재(생산자/산지/품종 중)","content":"숨은 이야기나 알아두면 좋은 배경지식 2-3문장"}],
 "essentialContext":"이 와인을 이해하기 위한 핵심 배경(등급 체계, 산지 특성 등) 3-4문장",
 "hierarchy":{"description":"[특수한 경우에만 작성] 독일 VDP 등급·모노폴(monopole)·특별한 리외디(lieu-dit)·생소하거나 일반적이지 않은 등급 체계처럼 위계를 알아두면 도움되는 경우에만 채운다. 보르도 샤토·평범한 부르고뉴 빌라주·신대륙 와인 등 일반적인 경우는 반드시 table을 빈 배열 []로 둔다.","table":[]},
@@ -1792,6 +1799,17 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                       </div>
                     </div>
                   )}
+                  {insights.glassPairing?.length > 0 && (
+                    <div style={{marginBottom:12,background:"#FBF8F4",borderRadius:8,padding:"11px 13px",border:"1px solid #f0e8de"}}>
+                      <div style={{fontSize:11,fontWeight:700,color:RED,marginBottom:7,textTransform:"uppercase"}}>🥂 추천 와인잔 (보유 중)</div>
+                      {insights.glassPairing.filter(g=>g&&g.name).map((g,i)=>(
+                        <div key={i} style={{marginBottom:i<insights.glassPairing.length-1?7:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:"#333"}}>{g.name}</div>
+                          {g.why && <div style={{fontSize:12,color:"#777",lineHeight:1.5,marginTop:1}}>{g.why}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {/* Fun fact */}
                   {insights.stories?.length > 0 && (
                     <div style={{marginBottom:12}}>
@@ -2966,6 +2984,12 @@ function App() {
   const [ratingBoostState, setRatingBoostState] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [tasters, setTasters] = useState(["나","아내"]);
+  const [glasses, setGlassesState] = useState([
+    "자페라노 울트라라이트 샴페인","리델 파토마노 샴페인","자페라노 울트라라이트 루아르",
+    "리델 오크드 샤르도네","가브리엘 스탠다트","잘토 유니버설","잘토 보르도",
+    "시도니오스 르 썹틸","리델 슈퍼리제로 버건디 그랑 크뤼","리델 퍼포먼스 버건디",
+    "슈피겔라우 데피니션 버건디","슈피겔라우 데피니션 보르도","소피앤왈드 그랑크뤼 버건디","쇼트즈위젤1872 에노테카 리오하"
+  ]);
 
   useEffect(() => {
     loadLocal().then(async d => {
@@ -2983,6 +3007,7 @@ function App() {
         if(s.geminiModel){ setGeminiModelState(s.geminiModel); setAIModel(s.geminiModel); }
         if(s.ratingBoost!==undefined){ setRatingBoostState(s.ratingBoost); setRatingBoost(s.ratingBoost); }
         if(s.tasters) setTasters(s.tasters);
+        if(s.glasses){ setGlassesState(s.glasses); setGlasses(s.glasses); } else { setGlasses(glasses); }
       }
     }).catch(()=>{}); } catch(e) {}
   }, []);
@@ -2997,6 +3022,8 @@ function App() {
     saveSettings({aiProvider:provider, geminiKey:gkey});
   }
   function saveTasters(arr) { setTasters(arr); saveSettings({tasters:arr}); }
+  function saveGlasses(arr) { const a=arr.filter(g=>g&&g.trim()); setGlassesState(a); setGlasses(a); saveSettings({glasses:a}); }
+  useEffect(()=>{ setGlasses(glasses); }, []); // 마운트 시 전역에 기본 잔 반영
   function saveModel(m){ setGeminiModelState(m); setAIModel(m); saveSettings({geminiModel:m}); }
   function saveRatingBoost(on){ setRatingBoostState(on); setRatingBoost(on); saveSettings({ratingBoost:on}); }
   function saveSettings(patch) {
@@ -3274,6 +3301,22 @@ function App() {
               <b style={{color:"#999"}}>백업은 '전체 백업(JSON)'을 우선 사용하세요.</b> 사진·시음노트·AI 상세정보까지 모두 포함한 완전 백업이며, 받은 파일을 구글 드라이브 등에 보관하면 안전합니다.<br/>
               엑셀(CSV)은 와인 목록을 표로 보거나 편집할 때 쓰는 보조 수단입니다(사진·노트·AI 상세 제외). 엑셀 버전에 따라 구분자가 바뀌어 가져오기가 꼬일 수 있으니, 대량 백업·복원은 반드시 JSON으로 하세요.
             </div>
+          </div>
+          {/* 보유 와인잔 */}
+          <div style={{marginBottom:18,paddingBottom:16,borderBottom:"1px solid #f0ece6"}}>
+            <div style={{fontSize:11,fontWeight:600,color:"#888",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🥂 보유 와인잔</div>
+            <div style={{fontSize:10,color:"#bbb",marginBottom:8,lineHeight:1.5}}>보유한 잔을 등록하면, 와인 상세의 '팁' 탭에서 그 와인에 맞는 잔을 이 목록 중에서 추천합니다. (와인 정보를 새로 채우거나 재조회할 때 반영)</div>
+            {glasses.map((g,i)=>(
+              <div key={i} style={{display:"flex",gap:6,marginBottom:6}}>
+                <input value={g} onChange={e=>{const a=[...glasses];a[i]=e.target.value;setGlassesState(a);}}
+                  onBlur={()=>saveGlasses(glasses)}
+                  style={{flex:1,border:"1px solid #eee",borderRadius:6,padding:"7px 10px",fontSize:12,outline:"none"}}/>
+                <button onClick={()=>saveGlasses(glasses.filter((_,j)=>j!==i))}
+                  style={{border:"1px solid #eee",borderRadius:6,background:"#fff",color:"#c00",width:32,cursor:"pointer"}}>×</button>
+              </div>
+            ))}
+            <button onClick={()=>{setGlassesState([...glasses,""]);}}
+              style={{width:"100%",marginTop:4,padding:"8px",border:"1px dashed #ccc",borderRadius:8,background:"#fff",color:"#888",fontSize:12,cursor:"pointer"}}>+ 잔 추가</button>
           </div>
           <div style={{marginBottom:14}}>
             <div style={{fontSize:11,fontWeight:600,color:"#888",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🤖 AI 제공자</div>
