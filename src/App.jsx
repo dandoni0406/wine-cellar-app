@@ -252,12 +252,12 @@ async function callGemini(prompt, apiKey, tokens, model){
   const isPro = model.includes("pro");
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
   const genConfig = {
-    maxOutputTokens: Math.max(tokens||2000, isPro?24000:6000),
+    maxOutputTokens: Math.max(tokens||2000, isPro?8192:6000),
     temperature:0.15,
     responseMimeType:"application/json"   // JSON 모드 강제 → 인사말/마크다운 없이 순수 JSON, 파싱 먹통 방지
   };
-  // Flash: thinking 끔. Pro: thinking 필수라 끌 순 없지만, 추론이 토큰을 다 먹어 답변이 잘리는 것을 막기 위해 예산을 제한.
-  genConfig.thinkingConfig = isPro ? {thinkingBudget:6000} : {thinkingBudget:0};
+  // Flash: thinking 끔(빠름). Pro: thinkingConfig를 아예 지정하지 않는다 — 프롬프트의 _reasoning 필드로 추론을 대신해 첫 토큰을 빠르게 받고, API 내부 "이중 추론"으로 인한 지연/잘림을 피한다.
+  if(!isPro) genConfig.thinkingConfig = {thinkingBudget:0};
   const body = JSON.stringify({ contents:[{parts:[{text:prompt}]}], generationConfig:genConfig });
   const sleep = ms => new Promise(res=>setTimeout(res,ms));
   const fetchTimeout = (u,opt,ms)=>{ const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms); return fetch(u,{...opt,signal:c.signal}).finally(()=>clearTimeout(t)); };
@@ -267,7 +267,7 @@ async function callGemini(prompt, apiKey, tokens, model){
     if(attempt>0) await sleep(attempt*2000); // 2초, 4초 대기
     let r;
     try {
-      r = await fetchTimeout(url, { method:"POST", headers:{"Content-Type":"application/json"}, body }, 60000);
+      r = await fetchTimeout(url, { method:"POST", headers:{"Content-Type":"application/json"}, body }, 120000);
     } catch(netErr) { lastStatus="network"; continue; } // 네트워크 오류/타임아웃 → 재시도
     if(r.ok){
       const data = await r.json();
@@ -348,7 +348,7 @@ async function callGeminiVision(prompt, dataUrl, tokens){
   let r, lastStatus=0;
   for(let attempt=0; attempt<3; attempt++){
     if(attempt>0) await sleep(attempt*2000);
-    try { r=await fetchTimeout(url,{method:"POST",headers:{"Content-Type":"application/json"},body},60000); }
+    try { r=await fetchTimeout(url,{method:"POST",headers:{"Content-Type":"application/json"},body},120000); }
     catch(netErr){ lastStatus="network"; continue; }
     if(r.ok) break;
     if(r.status===429) throw new Error("RATE_LIMIT 429");
@@ -1562,7 +1562,8 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
             )}
             {enriching&&(
               <div style={{...CS,textAlign:"center",color:GOLD,fontSize:13}}>
-                🤖 AI가 상세정보·팁·셀러 추천을 한 번에 조회 중... 잠시만요.
+                🤖 AI가 상세정보·팁·셀러 추천을 한 번에 조회 중입니다.
+                <span style={{display:"block",fontSize:11,color:"#888",marginTop:4}}>고품질(Pro) 모델은 최대 1~2분 걸릴 수 있어요. 화면을 닫지 말고 잠시만 기다려주세요.</span>
               </div>
             )}
             {/* ── 내부 탭 ── */}
