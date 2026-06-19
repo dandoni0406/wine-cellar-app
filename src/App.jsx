@@ -385,6 +385,19 @@ JSON 배열만 반환, 다른 텍스트 없이.`,12000,true);
 }
 
 // Basic lookup — simple flat JSON, very reliable
+// 채팅 등에서 복사한 자유 텍스트 → 와인 필드 추출 (채팅→앱 다리)
+const parsePastedWine = (text) => aiJson(
+`당신은 WSET Diploma 마스터 소믈리에다. 아래 <text>는 사용자가 AI 챗봇 등에서 복사한 와인 관련 글이다. 이 글에서 와인 정보를 추출해 아래 JSON으로만 반환한다. 마크다운 없이 순수 JSON만.
+규칙:
+- 글에 실제로 적혀 있거나 명확히 추론되는 값만 채우고, 없으면 빈 문자열로 둔다. 지어내지 말 것.
+- nameKR은 반드시 한글(영어명이면 한글로 번역). nameKR/nameEN 모두 "생산자(도멘/샤토 포함)+와인명/밭+등급" 순서. 부르고뉴 도멘은 "도멘 ___", 보르도 샤토는 "샤토 ___". 생산자명이 와인명에 이미 있으면 중복 금지.
+- description 등 서술은 '~이다' 평서체(존댓말 금지).
+- 여러 와인이 섞여 있으면 가장 핵심이 되는(가장 자세히 다뤄진) 와인 하나만 추출한다.
+<text>
+${(text||"").slice(0,6000)}
+</text>
+{"nameKR":"","nameEN":"","vintage":"","producer":"","country":"","region":"","subRegion":"","vineyard":"","classification":"","grapeVariety":"","wineType":"Red|White|Rosé|Sparkling|Dessert|Fortified","drinkFrom":"","drinkUntil":"","description":"핵심 설명 2-3문장(평서체)","marketPrice":"숫자만(원), 언급 없으면 빈칸"}`, 2000);
+
 const lookupWine = (name, v) => aiJson(
 `당신은 WSET Diploma를 보유한 마스터 소믈리에다. 정확성에 자부심이 있어 틀린 정보 대신 빈칸을 남긴다.
 와인 "${name}"${v?` (${v}빈티지)`:""}의 기본 정보를 아래 JSON으로만 반환. 마크다운 없이 순수 JSON만. nameKR/nameEN에 빈티지 포함 금지. 모든 서술(description 등)은 '~이다' 평서체로 작성(존댓말 금지). 부르고뉴면 isBurgundy=true, 보르도면 isBordeaux=true.
@@ -1308,6 +1321,26 @@ function AddWinePage({ type, onAdd, onBack }) {
 
   // ── 라벨 스캔 ──
   const scanRef = useRef(null);
+  // ── AI 텍스트 붙여넣기 (채팅→앱) ──
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [pasting, setPasting] = useState(false);
+  async function doPaste(){
+    const t = pasteText.trim();
+    if(!t){ return; }
+    setPasting(true);
+    try{
+      const r = await parsePastedWine(t);
+      if(r && (r.nameKR||r.nameEN)){
+        sf(p=>({...p, ...Object.fromEntries(Object.entries(r).filter(([k,val])=>val&&String(val).trim())), _reasoning:undefined}));
+        ss("form");
+        setPasteOpen(false); setPasteText("");
+      } else {
+        alert("텍스트에서 와인 정보를 찾지 못했습니다. 와인명이 포함된 내용인지 확인해주세요.");
+      }
+    }catch(e){ alert("분석 중 오류가 발생했습니다: "+(e.message||e)); }
+    setPasting(false);
+  }
   const [scanning, setScanning] = useState(false);
   const [scanErr, setScanErr] = useState("");
   async function onScanPick(e){
@@ -1347,6 +1380,22 @@ function AddWinePage({ type, onAdd, onBack }) {
                 {scanning?"📸 라벨 읽는 중...":"📸 라벨 사진 스캔"}
               </PB>
               {scanErr && <div style={{fontSize:11,color:"#991B1B",marginTop:6,lineHeight:1.5}}>{scanErr}</div>}
+            </div>
+            <div style={{borderTop:"1px solid #eee",marginTop:14,paddingTop:14}}>
+              <div style={{fontSize:12,color:"#888",marginBottom:8}}>또는 AI 채팅 답변을 붙여넣어 자동 등록 📝</div>
+              {!pasteOpen ? (
+                <GB onClick={()=>setPasteOpen(true)} full>📝 AI 추천 텍스트 붙여넣기</GB>
+              ) : (
+                <div>
+                  <textarea value={pasteText} onChange={e=>setPasteText(e.target.value)} rows={5}
+                    placeholder="클로드·제미나이 등에서 받은 와인 설명을 그대로 붙여넣으세요. AI가 와인명·빈티지·지역·음용시기 등을 알아서 채웁니다."
+                    style={{width:"100%",border:"1px solid #ddd",borderRadius:8,padding:"10px",fontSize:13,lineHeight:1.6,resize:"vertical",outline:"none",boxSizing:"border-box"}}/>
+                  <div style={{display:"flex",gap:8,marginTop:8}}>
+                    <PB onClick={doPaste} disabled={pasting||!pasteText.trim()} xs={{flex:1}}>{pasting?"🤖 분석 중...":"🤖 분석해서 채우기"}</PB>
+                    <GB onClick={()=>{setPasteOpen(false);setPasteText("");}}>취소</GB>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -2787,9 +2836,44 @@ function StatsTab({ wines, notes, tasters=["나","아내"] }) {
   const maxType=Math.max(...Object.values(byType),1);
   const typeColors={Red:"#8B2635",White:"#C8A020","Rosé":"#E08080",Sparkling:"#6080C0",Dessert:"#C08020",Fortified:"#806040"};
 
+  // AI 채팅용 셀러 요약 (앱→채팅 다리)
+  function buildCellarSummary(){
+    const regionCount = {};
+    inStock.forEach(w=>{ const r=w.region||w.country||"기타"; regionCount[r]=(regionCount[r]||0)+1; });
+    const topRegions = Object.entries(regionCount).sort((a,b)=>b[1]-a[1]).slice(0,4).map(([r,n])=>`${r} ${n}`).join(", ");
+    const drinkNow = inStock.filter(w=>getDrinkStatus(w.drinkFrom,w.drinkUntil)==="now"||getDrinkStatus(w.drinkFrom,w.drinkUntil)==="urgent").length;
+    const line = w => {
+      const nm = cleanName(w.nameKR||w.nameEN, w.vintage);
+      const a = avgScore(w);
+      return `- ${nm}${w.vintage?` ${w.vintage}`:""} | ${[w.region,w.country].filter(Boolean).join("/")||"-"} | ${w.wineType||"-"} | ${w.quantity||1}병 | 음용 ${w.drinkFrom||"?"}-${w.drinkUntil||"?"}${a?` | 평점 ${a.avg}`:""}`;
+    };
+    const head = `[내 와인 셀러 요약]\n총 보유 ${inStock.length}병 (지금 마시기 좋은 와인 ${drinkNow}병). 주요 산지: ${topRegions||"-"}.\n시음노트 ${notes.length}개. 아래는 보유 와인 목록이다.\n`;
+    const body = inStock.map(line).join("\n");
+    const wishHead = wis.length?`\n\n[관심 와인 ${wis.length}개]\n`+wis.map(w=>`- ${cleanName(w.nameKR||w.nameEN,w.vintage)}${w.vintage?` ${w.vintage}`:""} | ${[w.region,w.country].filter(Boolean).join("/")||"-"}`).join("\n"):"";
+    const tail = `\n\n위는 내 와인 셀러 현황이다. 이걸 참고해서 질문에 답해줘. (예: 오늘 OO 요리에 맞는 와인, 지금 마셔야 할 적기 와인, 내 컬렉션의 강점/약점 등)`;
+    return head+body+wishHead+tail;
+  }
+  const [copied, setCopied] = useState(false);
+  async function copyCellar(){
+    const txt = buildCellarSummary();
+    try{ await navigator.clipboard.writeText(txt); setCopied(true); setTimeout(()=>setCopied(false),2500); }
+    catch(e){
+      // 클립보드 권한 실패 시 폴백
+      const ta=document.createElement("textarea"); ta.value=txt; document.body.appendChild(ta); ta.select();
+      try{ document.execCommand("copy"); setCopied(true); setTimeout(()=>setCopied(false),2500); }catch(_){ alert("복사에 실패했습니다. 길게 눌러 직접 복사해주세요."); }
+      document.body.removeChild(ta);
+    }
+  }
+
   return(
     <div>
       <div style={{fontWeight:600,fontSize:15,marginBottom:14}}>📊 통계</div>
+
+      {/* AI 채팅용 셀러 복사 */}
+      <button onClick={copyCellar}
+        style={{width:"100%",marginBottom:14,padding:"12px",border:`1px solid ${copied?"#2E7D32":RED}`,borderRadius:10,background:copied?"#F0FDF4":"#FDF1F2",color:copied?"#2E7D32":RED,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+        {copied?"✓ 복사됐어요! 클로드·제미나이에 붙여넣으세요":"🤖 AI 채팅용 셀러 요약 복사"}
+      </button>
 
       {/* KPI cards */}
       <div style={{display:"flex",gap:10,marginBottom:14,flexWrap:"wrap"}}>
