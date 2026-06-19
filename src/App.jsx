@@ -80,6 +80,7 @@ function isDisclaimerNote(note) {
 
 // CSV (엑셀) 내보내기/가져오기 헬퍼
 const CSV_COLS = [
+  {key:"_category",label:"분류"},
   {key:"nameKR",label:"한글명"},{key:"nameEN",label:"영문명"},{key:"vintage",label:"빈티지"},
   {key:"producer",label:"생산자"},{key:"wineType",label:"종류"},{key:"country",label:"국가"},
   {key:"region",label:"지역"},{key:"subRegion",label:"세부지역"},{key:"vineyard",label:"포도밭"},
@@ -1524,7 +1525,7 @@ function WineDetailPage({ wine, wines=[], notes, onBack, onUpdate, onDelete, onT
                         if(q<=1){ if(window.confirm("마지막 한 병입니다. 다 마신 것으로 표시할까요?\n('마신 와인'으로 이동합니다.")) onUpdate({quantity:"0",status:"Consumed"}); }
                         else onUpdate({quantity:String(q-1)});
                       }} style={{width:34,height:34,borderRadius:"50%",border:`1.5px solid ${RED}`,background:"#fff",color:RED,fontSize:20,fontWeight:700,cursor:"pointer",lineHeight:1}}>−</button>
-                      <span style={{fontSize:18,fontWeight:700,minWidth:28,textAlign:"center"}}>{parseInt(wine.quantity)||1}<span style={{fontSize:12,color:"#aaa",fontWeight:400}}>병</span></span>
+                      <span style={{fontSize:15,fontWeight:700,minWidth:24,textAlign:"center"}}>{parseInt(wine.quantity)||1}<span style={{fontSize:11,color:"#aaa",fontWeight:400}}>병</span></span>
                       <button onClick={()=>onUpdate({quantity:String((parseInt(wine.quantity)||1)+1)})}
                         style={{width:34,height:34,borderRadius:"50%",border:`1.5px solid ${RED}`,background:RED,color:"#fff",fontSize:20,fontWeight:700,cursor:"pointer",lineHeight:1}}>+</button>
                     </div>
@@ -3002,8 +3003,8 @@ function App() {
       if(r){
         const s=JSON.parse(r.value);
         if(s.googleMapsKey) setGoogleMapsKey(s.googleMapsKey);
-        if(s.aiProvider){ setAiProviderState(s.aiProvider); setAIProvider(s.aiProvider, s.geminiKey||""); }
-        if(s.geminiKey) setGeminiKeyState(s.geminiKey);
+        if(s.geminiKey){ setGeminiKeyState(s.geminiKey); }
+        setAiProviderState("gemini"); setAIProvider("gemini", s.geminiKey||"");
         if(s.geminiModel){ setGeminiModelState(s.geminiModel); setAIModel(s.geminiModel); }
         if(s.ratingBoost!==undefined){ setRatingBoostState(s.ratingBoost); setRatingBoost(s.ratingBoost); }
         if(s.tasters) setTasters(s.tasters);
@@ -3044,8 +3045,10 @@ function App() {
     a.click(); URL.revokeObjectURL(url);
   }
   function doExportCSV() {
+    const catOf = w => w.type==="wishlist" ? "위시리스트" : (w.status==="Consumed" ? "마신와인" : "셀러");
+    const cell = (w,c) => c.key==="_category" ? catOf(w) : w[c.key];
     const head = CSV_COLS.map(c=>csvEscape(c.label)).join(",");
-    const body = wines.map(w=>CSV_COLS.map(c=>csvEscape(w[c.key])).join(",")).join("\n");
+    const body = wines.map(w=>CSV_COLS.map(c=>csvEscape(cell(w,c))).join(",")).join("\n");
     const csv = "\uFEFF" + head + "\n" + body; // BOM → 엑셀에서 한글 안 깨짐
     const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
     const url = URL.createObjectURL(blob);
@@ -3070,6 +3073,11 @@ function App() {
           const w={type:"cellar"};
           CSV_COLS.forEach(c=>{ if(idx[c.key]!=null) w[c.key]=String(row[idx[c.key]]||"").trim(); });
           if(!(w.nameKR||w.nameEN)) continue;
+          // 분류 열로 type/status 복원
+          const cat = (w._category||"").trim();
+          if(cat==="위시리스트"){ w.type="wishlist"; }
+          else { w.type="cellar"; if(cat==="마신와인"||w.status==="Consumed") w.status="Consumed"; else if(!w.status) w.status="In Stock"; }
+          delete w._category;
           if(!w.quantity) w.quantity="1";
           w.id=String(Date.now())+Math.random().toString(36).slice(2,7);
           w.createdAt=new Date().toISOString();
@@ -3272,10 +3280,6 @@ function App() {
           <div style={{fontSize:11,color:"rgba(255,255,255,.7)",whiteSpace:"nowrap"}}>{inStockCount}병 · 노트 {notes.length} · 관심 {wis.length}</div>
         </div>
         <div style={{display:"flex",gap:4,flexShrink:0}}>
-          <label title="불러오기" style={{background:"rgba(255,255,255,.15)",color:"#fff",borderRadius:8,width:34,height:34,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,cursor:"pointer"}}>
-            📥<input type="file" accept=".json" onChange={doImportJSON} style={{display:"none"}}/>
-          </label>
-          <button title="내보내기" onClick={doExportJSON} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,width:34,height:34,fontSize:15,cursor:"pointer"}}>📤</button>
           <button title="지도" onClick={()=>nav("cellarmap")} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,width:34,height:34,fontSize:15,cursor:"pointer"}}>🗺</button>
           <button title="설정" onClick={()=>setShowSettings(s=>!s)} style={{background:"rgba(255,255,255,.15)",color:"#fff",border:"none",borderRadius:8,width:34,height:34,fontSize:15,cursor:"pointer"}}>⚙️</button>
         </div>
@@ -3319,17 +3323,8 @@ function App() {
               style={{width:"100%",marginTop:4,padding:"8px",border:"1px dashed #ccc",borderRadius:8,background:"#fff",color:"#888",fontSize:12,cursor:"pointer"}}>+ 잔 추가</button>
           </div>
           <div style={{marginBottom:14}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#888",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🤖 AI 제공자</div>
-            <div style={{display:"flex",gap:8,marginBottom:8}}>
-              {[["claude","Claude"],["gemini","Gemini Flash (무료)"]].map(([v,l])=>(
-                <button key={v} onClick={()=>saveAISettings(v,geminiKeyState)}
-                  style={{flex:1,padding:"9px 8px",border:`1px solid ${aiProviderState===v?RED:"#ddd"}`,borderRadius:8,fontSize:12,fontWeight:aiProviderState===v?600:400,background:aiProviderState===v?"#FDF1F2":"#fff",color:aiProviderState===v?RED:"#666",cursor:"pointer"}}>
-                  {l}
-                </button>
-              ))}
-            </div>
-            {aiProviderState==="gemini" && (
-              <div>
+            <div style={{fontSize:11,fontWeight:600,color:"#888",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🤖 Gemini API 키</div>
+            <div>
                 <input value={geminiKeyState} onChange={e=>saveAISettings("gemini",e.target.value)}
                   placeholder="Google AI Studio API 키 (AIza...)" type="password"
                   style={{width:"100%",border:"1px solid #ddd",borderRadius:6,padding:"7px 10px",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
@@ -3363,19 +3358,6 @@ function App() {
                     </span>
                   </label>
                 </div>
-              </div>
-            )}
-            {aiProviderState==="claude" && (
-              <div style={{fontSize:11,color:"#aaa"}}>Gemini로 전환 시 크레딧 소모 없이 무료로 이용 가능합니다.</div>
-            )}
-          </div>
-          <div>
-            <div style={{fontSize:11,fontWeight:600,color:"#888",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>🗺 지도 API 키 (선택)</div>
-            <input value={googleMapsKey} onChange={e=>saveGoogleKey(e.target.value)}
-              placeholder="Mapbox: pk.eyJ1... · Google: AIza..." type="password"
-              style={{width:"100%",border:"1px solid #ddd",borderRadius:6,padding:"7px 10px",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
-            <div style={{fontSize:11,color:"#aaa",marginTop:4}}>
-              Mapbox 무료: <a href="https://account.mapbox.com" target="_blank" rel="noreferrer" style={{color:"#4264FB"}}>account.mapbox.com</a>
             </div>
           </div>
         </div>
